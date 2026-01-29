@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
+
+# Check if VAAPI hardware encoding is available
+use_vaapi=false
+if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=nv12,hwupload' -c:v hevc_vaapi -f null - 2>/dev/null; then
+    use_vaapi=true
+fi
+
 if [[ $# -ne 1 ]]; then
     echo "Usage: $0 <file>" >&2
     exit 1
@@ -55,12 +63,22 @@ if [[ "$output_file" == "$input_file" ]]; then
 fi
 
 # Build ffmpeg command
-ffmpeg_args=(-i "$input_file")
+ffmpeg_args=()
+
+if [[ "$use_vaapi" == true ]]; then
+    ffmpeg_args+=(-vaapi_device "$VAAPI_DEVICE")
+fi
+
+ffmpeg_args+=(-i "$input_file")
 
 if [[ "$needs_video_reencode" == true ]]; then
-    echo "Will re-encode video from $video_codec to H.265..."
-    # CRF 18 is visually lossless, preset slow for better compression
-    ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
+    if [[ "$use_vaapi" == true ]]; then
+        echo "Will re-encode video from $video_codec to H.265 (VAAPI hardware)..."
+        ffmpeg_args+=(-vf 'format=nv12,hwupload' -c:v hevc_vaapi -qp 20)
+    else
+        echo "Will re-encode video from $video_codec to H.265 (software)..."
+        ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
+    fi
 else
     ffmpeg_args+=(-c:v copy)
 fi
