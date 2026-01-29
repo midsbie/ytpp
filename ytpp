@@ -2,7 +2,68 @@
 
 set -euo pipefail
 
-VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
+readonly VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
+readonly DEFAULT_QP=18
+
+usage() {
+    cat <<EOF
+Usage: ${0##*/} [options] <file>
+
+Convert videos with AV1/Opus codecs to H.265/AAC for TV compatibility.
+
+Options:
+  --qp <value>   Set QP for VAAPI encoding (default: ${DEFAULT_QP}, lower=better quality)
+  --no-delete    Keep original file after conversion
+  -h, --help     Show this help message
+EOF
+}
+
+die() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Defaults
+qp="$DEFAULT_QP"
+delete_original=true
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --qp)
+            [[ $# -ge 2 ]] || die "--qp requires a value"
+            qp="$2"
+            [[ "$qp" =~ ^[0-9]+$ ]] || die "QP must be a positive integer"
+            shift 2
+            ;;
+        --qp=*)
+            qp="${1#*=}"
+            [[ "$qp" =~ ^[0-9]+$ ]] || die "QP must be a positive integer"
+            shift
+            ;;
+        --no-delete)
+            delete_original=false
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -*)
+            die "Unknown option: $1"
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [[ $# -ne 1 ]]; then
+    usage >&2
+    exit 1
+fi
+
+input_file="$1"
 
 # Check if VAAPI hardware encoding is available
 use_vaapi=false
@@ -10,17 +71,7 @@ if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE"
     use_vaapi=true
 fi
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <file>" >&2
-    exit 1
-fi
-
-input_file="$1"
-
-if [[ ! -f "$input_file" ]]; then
-    echo "Error: File '$input_file' not found" >&2
-    exit 1
-fi
+[[ -f "$input_file" ]] || die "File '$input_file' not found"
 
 extension="${input_file##*.}"
 
@@ -74,7 +125,7 @@ ffmpeg_args+=(-i "$input_file")
 if [[ "$needs_video_reencode" == true ]]; then
     if [[ "$use_vaapi" == true ]]; then
         echo "Will re-encode video from $video_codec to H.265 (VAAPI hardware)..."
-        ffmpeg_args+=(-vf 'format=nv12,hwupload' -c:v hevc_vaapi -qp 20)
+        ffmpeg_args+=(-vf 'format=nv12,hwupload' -c:v hevc_vaapi -qp "$qp")
     else
         echo "Will re-encode video from $video_codec to H.265 (software)..."
         ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
@@ -93,5 +144,10 @@ fi
 ffmpeg_args+=("$output_file")
 
 echo "Converting..."
-ffmpeg "${ffmpeg_args[@]}"
+ffmpeg "${ffmpeg_args[@]}" || die "Conversion failed"
 echo "Created: $output_file"
+
+if [[ "$delete_original" == true && "$input_file" != "$output_file" ]]; then
+    rm "$input_file"
+    echo "Deleted: $input_file"
+fi
