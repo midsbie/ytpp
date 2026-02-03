@@ -125,9 +125,9 @@ ffmpeg_args+=(-i "$input_file")
 if [[ "$needs_video_reencode" == true ]]; then
     if [[ "$use_vaapi" == true ]]; then
         echo "Will re-encode video from $video_codec to H.265 (VAAPI hardware)..."
-        # force_divisible_by=16 prevents green bar artifacts when dimensions aren't aligned
-        # See: https://ffmpeg.org/pipermail/ffmpeg-user/2018-June/040207.html
-        ffmpeg_args+=(-vf 'format=nv12,hwupload,scale_vaapi=w=iw:h=ih:force_divisible_by=16' -c:v hevc_vaapi -qp "$qp")
+        # scale=iw:ih forces frame reallocation with proper memory alignment before hwupload,
+        # preventing green bar artifacts caused by stride misalignment from software decoders
+        ffmpeg_args+=(-vf 'scale=iw:ih,format=nv12,hwupload' -c:v hevc_vaapi -qp "$qp")
     else
         echo "Will re-encode video from $video_codec to H.265 (software)..."
         ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
