@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [[ $# -gt 0 ]]; then
+    yt-dlp "$@"
+fi
+
+for f in *.webm; do
+    [[ -e "$f" ]] || break
+    ytpp "$f"
+done
