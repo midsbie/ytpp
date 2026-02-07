@@ -157,10 +157,20 @@ if [[ "$needs_video_reencode" == true ]]; then
         # References:
         # - https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1990958.html
         # - https://obsproject.com/forum/threads/experimental-ffmpeg-vaapi-plugin.61529/page-2
+        echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
         aligned_height=$(( ((video_height + 31) / 32) * 32 ))
-        ffmpeg_args+=(-vf "scale=${video_width}:${aligned_height},format=nv12,hwupload,scale_vaapi=w=${video_width}:h=${video_height}" -c:v hevc_vaapi -qp "$qp" -aspect "${video_width}:${video_height}")
+
+        # Build VAAPI filter chain: always need format=nv12,hwupload; conditionally wrap with
+        # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
+        # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
+        # omitting it preserves anamorphic SAR.
+        vf="format=nv12,hwupload"
+        if [[ "$aligned_height" -ne "$video_height" ]]; then
+            vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
+        fi
+        ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -qp "$qp")
     else
-        echo "Will re-encode video from $video_codec to H.265 (software)..."
+        echo "Will re-encode video from $video_codec to H.265 via software..."
         ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
     fi
 else
