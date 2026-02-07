@@ -1,0 +1,47 @@
+* ytpp
+
+Post-process YouTube downloads for TV compatibility.
+
+Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AAC while copying anything already compatible, so files play without hassle over DLNA/USB.
+
+** Usage
+
+#+begin_example
+ytpp [options] <file>
+#+end_example
+
+| Option        | Description                                        |
+|---------------+----------------------------------------------------|
+| =--qp <n>=    | QP for VAAPI encoding (default: 18, lower=better)  |
+| =--no-delete= | Keep the original file after conversion             |
+| =-h, --help=  | Show help                                           |
+
+A convenience wrapper is included for download-and-transcode in one step:
+
+#+begin_example
+ytdl <yt-dlp args>
+#+end_example
+
+** How it works
+
+1. Probe the input for codec and dimension info.
+2. Re-encode heuristics:
+   - If AV1: re-encode video to H.265.
+   - If Opus: re-encode audio to AAC.
+   - Otherwise: streams are considered compatible and copied as-is.
+3. VAAPI hardware encoding is used automatically when available, with a software (libx265) fallback.
+
+*** VAAPI 32-byte alignment workaround
+
+AMD and Intel VAAPI HEVC encoders (some?) (appear to) require frame heights divisible by 32.  Non-aligned heights (e.g. 1080) are internally padded to the next aligned value (1088), producing a green bar at the bottom of the frame.
+
+=ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* to the original height with =scale_vaapi=.  When the height is already aligned (720p, 2160p) the extra scaling is skipped entirely.
+
+** Dependencies
+
+- =ffmpeg= / =ffprobe=
+- =yt-dlp= (for =ytdl= only)
+
+** License
+
+MIT
