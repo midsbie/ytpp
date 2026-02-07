@@ -81,11 +81,15 @@ if [[ ! "$extension" =~ ^(webm|mkv|mp4)$ ]]; then
     exit 0
 fi
 
-# Get video and audio codecs and dimensions
-video_codec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$input_file")
-audio_codec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$input_file")
-video_width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 "$input_file")
-video_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "$input_file")
+# Get video and audio codecs and dimensions (two probes: one per stream type)
+IFS=',' read -r video_codec video_width video_height < <(
+    ffprobe -v error -select_streams v:0 \
+        -show_entries stream=codec_name,width,height \
+        -of csv=p=0 "$input_file"
+)
+audio_codec=$(ffprobe -v error -select_streams a:0 \
+    -show_entries stream=codec_name \
+    -of default=noprint_wrappers=1:nokey=1 "$input_file")
 
 echo "Detected video codec: $video_codec"
 echo "Detected audio codec: $audio_codec"
