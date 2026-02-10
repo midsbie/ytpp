@@ -26,5 +26,5 @@ else
     BROWSER="$(detect_browser)" || { echo "Could not detect default browser; pass one explicitly." >&2; exit 1; }
 fi
 
-yt-dlp --cookies-from-browser "$BROWSER" --cookies "$COOKIES" --skip-download "https://www.youtube.com/TwEL7LkeNqU"
+yt-dlp --cookies-from-browser "$BROWSER" --cookies "$COOKIES" --skip-download "TwEL7LkeNqU"
 chmod 600 "$COOKIES"
