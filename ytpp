@@ -180,8 +180,33 @@ else
 fi
 
 if [[ "$needs_audio_reencode" == true ]]; then
+    # Opus → AAC choppy audio fix
+    # ===========================
+    # Some long videos exhibit choppy/corrupted audio segments after Opus-to-AAC transcoding,
+    # particularly on older TVs (e.g., Samsung C8). Two known causes:
+    #
+    # 1. Frame size mismatch: Opus uses 960 samples/frame (20ms @ 48kHz), but ffmpeg's native AAC
+    #    encoder expects 1024 samples/frame. Without proper reframing, each Opus frame is padded
+    #    with 64 blank samples. Over long files the accumulated micro-gaps cause audible choppiness
+    #    in some segments.
+    #    - https://libav-user.ffmpeg.narkive.com/LlO8JSzP/opus-transcoding-to-aac-but-960-sample-increase-to-1024-with-a-nomalized-blank-data
+    #
+    # 2. Timestamp discontinuities: YouTube adaptive-streaming downloads can contain subtle PTS
+    #    jumps at segment boundaries. The native AAC encoder mishandles these, producing gaps or
+    #    distortion, especially in longer videos with more segment joins.
+    #    - https://trac.ffmpeg.org/ticket/4676
+    #
+    # Recommendations from the references:
+    # - Use an audio FIFO buffer to accumulate 1024 samples before encoding (API-level fix)
+    # - Use libfdk_aac, which handles frame boundaries and priming delay more robustly
+    # - Add -af aresample=async=1 to correct timestamp discontinuities via sample insertion/drop
+    # - Add -async 1 (global, more aggressive) to force audio sync at stream start
+    #
+    # Chosen fix: -af aresample=async=1. This resamples audio to smooth out timestamp drift and
+    # compensates for the frame-size reframing artifacts without requiring libfdk_aac (which is not
+    # available in all ffmpeg builds). Short videos are unaffected either way.
     echo "Will re-encode audio from $audio_codec to AAC..."
-    ffmpeg_args+=(-c:a aac -b:a 192k)
+    ffmpeg_args+=(-c:a aac -af aresample=async=1 -b:a 192k)
 else
     ffmpeg_args+=(-c:a copy)
 fi
