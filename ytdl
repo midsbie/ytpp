@@ -2,8 +2,13 @@
 
 set -euo pipefail
 
+COOKIES="${COOKIES:-cookies.txt}"
+
+cookies_args=()
+[[ -f "$COOKIES" ]] && cookies_args=(--cookies "$COOKIES")
+
 if [[ $# -gt 0 ]]; then
-    yt-dlp "$@"
+    yt-dlp "${cookies_args[@]}" "$@"
 fi
 
 for f in *.webm; do

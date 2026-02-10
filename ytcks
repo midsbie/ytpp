@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+
+COOKIES="${COOKIES:-cookies.txt}"
+
+detect_browser() {
+    local desktop
+    desktop="$(xdg-settings get default-web-browser 2>/dev/null)" || return 1
+    case "$desktop" in
+        firefox*)           echo firefox ;;
+        google-chrome*)     echo chrome ;;
+        chromium*)          echo chromium ;;
+        brave*)             echo brave ;;
+        *)                  return 1 ;;
+    esac
+}
+
+usage() { echo "Usage: ytcks [browser]" >&2; exit 1; }
+
+[[ $# -le 1 ]] || usage
+
+if [[ $# -eq 1 ]]; then
+    BROWSER="$1"
+else
+    BROWSER="$(detect_browser)" || { echo "Could not detect default browser; pass one explicitly." >&2; exit 1; }
+fi
+
+yt-dlp --cookies-from-browser "$BROWSER" --cookies "$COOKIES" --skip-download "https://www.youtube.com/TwEL7LkeNqU"
+chmod 600 "$COOKIES"

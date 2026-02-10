@@ -37,6 +37,27 @@ AMD and Intel VAAPI HEVC encoders (some?) (appear to) require frame heights divi
 
 =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* to the original height with =scale_vaapi=.  When the height is already aligned (720p, 2160p) the extra scaling is skipped entirely.
 
+** Cookie support
+
+YouTube's anti-bot measures often require browser cookies for yt-dlp to work reliably.  =ytcks= extracts cookies into a file that =ytdl= picks up automatically:
+
+#+begin_example
+ytcks [browser]
+#+end_example
+
+When called without an argument, =ytcks= makes a low-effort attempt to detect the default browser via =xdg-settings=.  Firefox users with multiple profiles may need to specify the profile path explicitly, since yt-dlp can pick the wrong one:
+
+#+begin_example
+ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
+#+end_example
+
+This creates =cookies.txt= (=chmod 600=) in the current directory.  Subsequent =ytdl= invocations will pass =--cookies= to yt-dlp when =cookies.txt= exists in the working directory.  Set the =COOKIES= environment variable to override the path:
+
+#+begin_example
+COOKIES=~/cookies.txt ytcks firefox
+COOKIES=~/cookies.txt ytdl <yt-dlp args>
+#+end_example
+
 ** Dependencies
 
 - =ffmpeg= / =ffprobe=
