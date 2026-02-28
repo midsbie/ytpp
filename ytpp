@@ -29,7 +29,7 @@ die() {
 process_file() {
     local input_file="$1"
 
-    [[ -f "$input_file" ]] || die "File '$input_file' not found"
+    [[ -f "$input_file" ]] || { echo "Error: File '$input_file' not found" >&2; return 1; }
 
     local extension="${input_file##*.}"
 
@@ -174,7 +174,7 @@ process_file() {
     ffmpeg_args+=("$output_file")
 
     echo "Converting..."
-    ffmpeg "${ffmpeg_args[@]}" || die "Conversion failed"
+    ffmpeg "${ffmpeg_args[@]}" || { echo "Error: Conversion failed for '$input_file'" >&2; return 1; }
     echo "Created: $output_file"
 
     if [[ "$delete_original" == true && "$input_file" != "$output_file" ]]; then
@@ -231,6 +231,8 @@ if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE"
     use_vaapi=true
 fi
 
+failures=0
 for input_file in "${files[@]}"; do
-    process_file "$input_file"
+    process_file "$input_file" || ((failures++))
 done
+((failures)) && exit 1
