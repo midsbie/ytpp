@@ -7,9 +7,10 @@ readonly DEFAULT_QP=18
 
 usage() {
     cat <<EOF
-Usage: ${0##*/} [options] <file>
+Usage: ${0##*/} [options] [file]
 
 Convert videos with AV1/Opus codecs to H.265/AAC for TV compatibility.
+With no file argument, processes all .webm files in the current directory.
 
 Options:
   --qp <value>   Set QP for VAAPI encoding (default: ${DEFAULT_QP}, lower=better quality)
@@ -21,6 +22,165 @@ EOF
 die() {
     echo "Error: $1" >&2
     exit 1
+}
+
+# Returns 0 (needs processing) or 1 (skip). Prints status messages.
+# On success, converts the file and optionally deletes the original.
+process_file() {
+    local input_file="$1"
+
+    [[ -f "$input_file" ]] || die "File '$input_file' not found"
+
+    local extension="${input_file##*.}"
+
+    # Only process video containers we care about
+    if [[ ! "$extension" =~ ^(webm|mkv|mp4)$ ]]; then
+        echo "Skipping '$input_file': not webm/mkv/mp4"
+        return 0
+    fi
+
+    # Get video and audio codecs and dimensions (two probes: one per stream type)
+    local video_codec video_width video_height audio_codec
+    IFS=',' read -r video_codec video_width video_height < <(
+        ffprobe -v error -select_streams v:0 \
+            -show_entries stream=codec_name,width,height \
+            -of csv=p=0 "$input_file"
+    )
+    audio_codec=$(ffprobe -v error -select_streams a:0 \
+        -show_entries stream=codec_name \
+        -of default=noprint_wrappers=1:nokey=1 "$input_file")
+
+    echo "Detected video codec: $video_codec"
+    echo "Detected audio codec: $audio_codec"
+
+    # Determine if we need to re-encode
+    local needs_video_reencode=false
+    local needs_audio_reencode=false
+
+    # AV1 not supported by older TVs (e.g., LG C8)
+    if [[ "$video_codec" == "av1" ]]; then
+        needs_video_reencode=true
+    fi
+
+    # Opus not widely supported on TVs
+    if [[ "$audio_codec" == "opus" ]]; then
+        needs_audio_reencode=true
+    fi
+
+    if [[ "$needs_video_reencode" == false && "$needs_audio_reencode" == false ]]; then
+        echo "No conversion needed for '$input_file'"
+        return 0
+    fi
+
+    # Build output filename
+    local output_file="${input_file%.*}.mkv"
+    if [[ "$output_file" == "$input_file" ]]; then
+        output_file="${input_file%.*}_converted.mkv"
+    fi
+
+    # Build ffmpeg command
+    local ffmpeg_args=()
+
+    if [[ "$use_vaapi" == true ]]; then
+        ffmpeg_args+=(-vaapi_device "$VAAPI_DEVICE")
+    fi
+
+    ffmpeg_args+=(-i "$input_file")
+
+    if [[ "$needs_video_reencode" == true ]]; then
+        if [[ "$use_vaapi" == true ]]; then
+            # VAAPI HEVC encoder green bar fix
+            # ================================
+            # AMD (and some Intel) VAAPI HEVC encoders require heights divisible by 32.  Non-aligned
+            # heights (e.g., 1080) cause the encoder to pad to the next aligned value (1088),
+            # filling extra rows with uninitialized data that appears as a green bar at the bottom
+            # of the video.
+            #
+            # Failed approaches:
+            # 1. scale_vaapi=force_divisible_by=16 - Operates AFTER hwupload, but the green bar
+            #    originates during encoding, not upload. Also, 1080 is already divisible by 16; the
+            #    encoder needs 32-byte alignment.
+            # 2. scale=iw:ih before hwupload - Forces frame reallocation but doesn't address the
+            #    encoder's internal padding behavior.
+            # 3. pad + scale_vaapi crop - Padding adds black pixels; scaling back down compresses
+            #    them into the frame rather than cropping, causing a black bar.
+            # 4. crop to 1056 (32-aligned) - Works but loses 24 pixels of actual content.
+            #
+            # Working approach: Scale UP to 32-aligned height in software, upload to VAAPI, then
+            # scale back DOWN to original height with scale_vaapi. The double-scale cancels out with
+            # minimal quality loss (<1% dimension change for 1080p).
+            #
+            # Caveats:
+            # - Two scaling operations introduce minor quality loss (imperceptible for most content,
+            #   but may affect fine details or text at frame edges)
+            # - Slightly slower than direct encoding due to extra scale operations
+            # - If height is already 32-aligned (720p, 2160p), scaling is a no-op
+            #
+            # References:
+            # - https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1990958.html
+            # - https://obsproject.com/forum/threads/experimental-ffmpeg-vaapi-plugin.61529/page-2
+            echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
+            local aligned_height=$(( ((video_height + 31) / 32) * 32 ))
+
+            # Build VAAPI filter chain: always need format=nv12,hwupload; conditionally wrap with
+            # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
+            # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
+            # omitting it preserves anamorphic SAR.
+            local vf="format=nv12,hwupload"
+            if [[ "$aligned_height" -ne "$video_height" ]]; then
+                vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
+            fi
+            ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -qp "$qp")
+        else
+            echo "Will re-encode video from $video_codec to H.265 via software..."
+            ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
+        fi
+    else
+        ffmpeg_args+=(-c:v copy)
+    fi
+
+    if [[ "$needs_audio_reencode" == true ]]; then
+        # Opus → AAC choppy audio fix
+        # ===========================
+        # Some long videos exhibit choppy/corrupted audio segments after Opus-to-AAC transcoding,
+        # particularly on older TVs (e.g., Samsung C8). Two known causes:
+        #
+        # 1. Frame size mismatch: Opus uses 960 samples/frame (20ms @ 48kHz), but ffmpeg's native
+        #    AAC encoder expects 1024 samples/frame. Without proper reframing, each Opus frame is
+        #    padded with 64 blank samples. Over long files the accumulated micro-gaps cause audible
+        #    choppiness in some segments.
+        #    - https://libav-user.ffmpeg.narkive.com/LlO8JSzP/opus-transcoding-to-aac-but-960-sample-increase-to-1024-with-a-nomalized-blank-data
+        #
+        # 2. Timestamp discontinuities: YouTube adaptive-streaming downloads can contain subtle PTS
+        #    jumps at segment boundaries. The native AAC encoder mishandles these, producing gaps or
+        #    distortion, especially in longer videos with more segment joins.
+        #    - https://trac.ffmpeg.org/ticket/4676
+        #
+        # Recommendations from the references:
+        # - Use an audio FIFO buffer to accumulate 1024 samples before encoding (API-level fix)
+        # - Use libfdk_aac, which handles frame boundaries and priming delay more robustly
+        # - Add -af aresample=async=1 to correct timestamp discontinuities via sample insertion/drop
+        # - Add -async 1 (global, more aggressive) to force audio sync at stream start
+        #
+        # Chosen fix: -af aresample=async=1. This resamples audio to smooth out timestamp drift and
+        # compensates for the frame-size reframing artifacts without requiring libfdk_aac (which is
+        # not available in all ffmpeg builds). Short videos are unaffected either way.
+        echo "Will re-encode audio from $audio_codec to AAC..."
+        ffmpeg_args+=(-c:a aac -af aresample=async=1 -b:a 192k)
+    else
+        ffmpeg_args+=(-c:a copy)
+    fi
+
+    ffmpeg_args+=("$output_file")
+
+    echo "Converting..."
+    ffmpeg "${ffmpeg_args[@]}" || die "Conversion failed"
+    echo "Created: $output_file"
+
+    if [[ "$delete_original" == true && "$input_file" != "$output_file" ]]; then
+        rm "$input_file"
+        echo "Deleted: $input_file"
+    fi
 }
 
 # Defaults
@@ -58,12 +218,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ $# -ne 1 ]]; then
-    usage >&2
-    exit 1
+if [[ $# -gt 0 ]]; then
+    files=("$@")
+else
+    files=(*.webm)
+    [[ -e "${files[0]}" ]] || { echo "No .webm files found"; exit 0; }
 fi
-
-input_file="$1"
 
 # Check if VAAPI hardware encoding is available
 use_vaapi=false
@@ -71,153 +231,6 @@ if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE"
     use_vaapi=true
 fi
 
-[[ -f "$input_file" ]] || die "File '$input_file' not found"
-
-extension="${input_file##*.}"
-
-# Only process video containers we care about
-if [[ ! "$extension" =~ ^(webm|mkv|mp4)$ ]]; then
-    echo "File is not webm/mkv/mp4, nothing to do"
-    exit 0
-fi
-
-# Get video and audio codecs and dimensions (two probes: one per stream type)
-IFS=',' read -r video_codec video_width video_height < <(
-    ffprobe -v error -select_streams v:0 \
-        -show_entries stream=codec_name,width,height \
-        -of csv=p=0 "$input_file"
-)
-audio_codec=$(ffprobe -v error -select_streams a:0 \
-    -show_entries stream=codec_name \
-    -of default=noprint_wrappers=1:nokey=1 "$input_file")
-
-echo "Detected video codec: $video_codec"
-echo "Detected audio codec: $audio_codec"
-
-# Determine if we need to re-encode
-needs_video_reencode=false
-needs_audio_reencode=false
-
-# AV1 not supported by older TVs (e.g., LG C8)
-if [[ "$video_codec" == "av1" ]]; then
-    needs_video_reencode=true
-fi
-
-# Opus not widely supported on TVs
-if [[ "$audio_codec" == "opus" ]]; then
-    needs_audio_reencode=true
-fi
-
-if [[ "$needs_video_reencode" == false && "$needs_audio_reencode" == false ]]; then
-    echo "No conversion needed"
-    exit 0
-fi
-
-# Build output filename
-output_file="${input_file%.*}.mkv"
-if [[ "$output_file" == "$input_file" ]]; then
-    output_file="${input_file%.*}_converted.mkv"
-fi
-
-# Build ffmpeg command
-ffmpeg_args=()
-
-if [[ "$use_vaapi" == true ]]; then
-    ffmpeg_args+=(-vaapi_device "$VAAPI_DEVICE")
-fi
-
-ffmpeg_args+=(-i "$input_file")
-
-if [[ "$needs_video_reencode" == true ]]; then
-    if [[ "$use_vaapi" == true ]]; then
-        # VAAPI HEVC encoder green bar fix
-        # ================================
-        # AMD (and some Intel) VAAPI HEVC encoders require heights divisible by 32.  Non-aligned
-        # heights (e.g., 1080) cause the encoder to pad to the next aligned value (1088), filling
-        # extra rows with uninitialized data that appears as a green bar at the bottom of the video.
-        #
-        # Failed approaches:
-        # 1. scale_vaapi=force_divisible_by=16 - Operates AFTER hwupload, but the green bar
-        #    originates during encoding, not upload. Also, 1080 is already divisible by 16; the
-        #    encoder needs 32-byte alignment.
-        # 2. scale=iw:ih before hwupload - Forces frame reallocation but doesn't address the
-        #    encoder's internal padding behavior.
-        # 3. pad + scale_vaapi crop - Padding adds black pixels; scaling back down compresses them
-        #    into the frame rather than cropping, causing a black bar.
-        # 4. crop to 1056 (32-aligned) - Works but loses 24 pixels of actual content.
-        #
-        # Working approach: Scale UP to 32-aligned height in software, upload to VAAPI, then scale
-        # back DOWN to original height with scale_vaapi. The double-scale cancels out with minimal
-        # quality loss (<1% dimension change for 1080p).
-        #
-        # Caveats:
-        # - Two scaling operations introduce minor quality loss (imperceptible for most content, but
-        #   may affect fine details or text at frame edges)
-        # - Slightly slower than direct encoding due to extra scale operations
-        # - If height is already 32-aligned (720p, 2160p), scaling is a no-op
-        #
-        # References:
-        # - https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1990958.html
-        # - https://obsproject.com/forum/threads/experimental-ffmpeg-vaapi-plugin.61529/page-2
-        echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
-        aligned_height=$(( ((video_height + 31) / 32) * 32 ))
-
-        # Build VAAPI filter chain: always need format=nv12,hwupload; conditionally wrap with
-        # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
-        # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
-        # omitting it preserves anamorphic SAR.
-        vf="format=nv12,hwupload"
-        if [[ "$aligned_height" -ne "$video_height" ]]; then
-            vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
-        fi
-        ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -qp "$qp")
-    else
-        echo "Will re-encode video from $video_codec to H.265 via software..."
-        ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
-    fi
-else
-    ffmpeg_args+=(-c:v copy)
-fi
-
-if [[ "$needs_audio_reencode" == true ]]; then
-    # Opus → AAC choppy audio fix
-    # ===========================
-    # Some long videos exhibit choppy/corrupted audio segments after Opus-to-AAC transcoding,
-    # particularly on older TVs (e.g., Samsung C8). Two known causes:
-    #
-    # 1. Frame size mismatch: Opus uses 960 samples/frame (20ms @ 48kHz), but ffmpeg's native AAC
-    #    encoder expects 1024 samples/frame. Without proper reframing, each Opus frame is padded
-    #    with 64 blank samples. Over long files the accumulated micro-gaps cause audible choppiness
-    #    in some segments.
-    #    - https://libav-user.ffmpeg.narkive.com/LlO8JSzP/opus-transcoding-to-aac-but-960-sample-increase-to-1024-with-a-nomalized-blank-data
-    #
-    # 2. Timestamp discontinuities: YouTube adaptive-streaming downloads can contain subtle PTS
-    #    jumps at segment boundaries. The native AAC encoder mishandles these, producing gaps or
-    #    distortion, especially in longer videos with more segment joins.
-    #    - https://trac.ffmpeg.org/ticket/4676
-    #
-    # Recommendations from the references:
-    # - Use an audio FIFO buffer to accumulate 1024 samples before encoding (API-level fix)
-    # - Use libfdk_aac, which handles frame boundaries and priming delay more robustly
-    # - Add -af aresample=async=1 to correct timestamp discontinuities via sample insertion/drop
-    # - Add -async 1 (global, more aggressive) to force audio sync at stream start
-    #
-    # Chosen fix: -af aresample=async=1. This resamples audio to smooth out timestamp drift and
-    # compensates for the frame-size reframing artifacts without requiring libfdk_aac (which is not
-    # available in all ffmpeg builds). Short videos are unaffected either way.
-    echo "Will re-encode audio from $audio_codec to AAC..."
-    ffmpeg_args+=(-c:a aac -af aresample=async=1 -b:a 192k)
-else
-    ffmpeg_args+=(-c:a copy)
-fi
-
-ffmpeg_args+=("$output_file")
-
-echo "Converting..."
-ffmpeg "${ffmpeg_args[@]}" || die "Conversion failed"
-echo "Created: $output_file"
-
-if [[ "$delete_original" == true && "$input_file" != "$output_file" ]]; then
-    rm "$input_file"
-    echo "Deleted: $input_file"
-fi
+for input_file in "${files[@]}"; do
+    process_file "$input_file"
+done
