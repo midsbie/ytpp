@@ -7,15 +7,15 @@ COOKIES="${COOKIES:-cookies.txt}"
 cookies_args=()
 [[ -f "$COOKIES" ]] && cookies_args=(--cookies "$COOKIES")
 
+js_args=()
+command -v node &>/dev/null && js_args=(--js-runtimes node)
+
 if [[ $# -gt 0 ]]; then
-    yt-dlp "${cookies_args[@]}" \
+    yt-dlp "${cookies_args[@]}" "${js_args[@]}" \
+        -f "bv*+ba/b" \
+        --extractor-args "youtube:player_client=tv,mweb" \
         --retries 50 \
         --retry-sleep exp=1:300 \
         --fragment-retries 50 \
         "$@" || exit 1
 fi
-
-for f in *.webm; do
-    [[ -e "$f" ]] || break
-    ytpp "$f"
-done
