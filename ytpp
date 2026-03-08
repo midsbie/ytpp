@@ -131,7 +131,7 @@ process_file() {
             if [[ "$aligned_height" -ne "$video_height" ]]; then
                 vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
             fi
-            ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -qp "$qp")
+            ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -profile:v main10 -rc_mode CQP -qp "$qp")
         else
             echo "Will re-encode video from $video_codec to H.265 via software..."
             ffmpeg_args+=(-c:v libx265 -crf ${DEFAULT_CRF} -preset veryslow)
@@ -228,7 +228,7 @@ fi
 
 # Check if VAAPI hardware encoding is available
 use_vaapi=false
-if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=p010,hwupload' -c:v hevc_vaapi -f null - 2>/dev/null; then
+if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=p010,hwupload' -c:v hevc_vaapi -profile:v main10 -f null - 2>/dev/null; then
     use_vaapi=true
 fi
 
