@@ -3,6 +3,8 @@
 set -euo pipefail
 
 readonly VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
+readonly VAAPI_VF_BASE="format=p010,hwupload"
+readonly VAAPI_ENCODER_ARGS=(-c:v hevc_vaapi -profile:v main10)
 readonly DEFAULT_QP=15
 readonly DEFAULT_CRF=18
 
@@ -23,6 +25,15 @@ EOF
 die() {
     echo "Error: $1" >&2
     exit 1
+}
+
+# Test whether the VAAPI device supports HEVC encoding with our settings
+vaapi_available() {
+    [[ -r "$VAAPI_DEVICE" ]] &&
+        ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" \
+            -f lavfi -i nullsrc -t 0.1 \
+            -vf "$VAAPI_VF_BASE" "${VAAPI_ENCODER_ARGS[@]}" \
+            -f null - 2>/dev/null
 }
 
 # Returns 0 (needs processing) or 1 (skip). Prints status messages.
@@ -127,11 +138,11 @@ process_file() {
             # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
             # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
             # omitting it preserves anamorphic SAR.
-            local vf="format=p010,hwupload"
+            local vf="$VAAPI_VF_BASE"
             if [[ "$aligned_height" -ne "$video_height" ]]; then
                 vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
             fi
-            ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -profile:v main10 -rc_mode CQP -qp "$qp")
+            ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$qp")
         else
             echo "Will re-encode video from $video_codec to H.265 via software..."
             ffmpeg_args+=(-c:v libx265 -crf ${DEFAULT_CRF} -preset veryslow)
@@ -227,10 +238,7 @@ else
 fi
 
 # Check if VAAPI hardware encoding is available
-use_vaapi=false
-if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=p010,hwupload' -c:v hevc_vaapi -profile:v main10 -f null - 2>/dev/null; then
-    use_vaapi=true
-fi
+vaapi_available && use_vaapi=true || use_vaapi=false
 
 failures=0
 for input_file in "${files[@]}"; do
