@@ -123,11 +123,11 @@ process_file() {
             echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
             local aligned_height=$(( ((video_height + 31) / 32) * 32 ))
 
-            # Build VAAPI filter chain: always need format=nv12,hwupload; conditionally wrap with
+            # Build VAAPI filter chain: always need format=p010,hwupload; conditionally wrap with
             # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
             # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
             # omitting it preserves anamorphic SAR.
-            local vf="format=nv12,hwupload"
+            local vf="format=p010,hwupload"
             if [[ "$aligned_height" -ne "$video_height" ]]; then
                 vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
             fi
@@ -228,7 +228,7 @@ fi
 
 # Check if VAAPI hardware encoding is available
 use_vaapi=false
-if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=nv12,hwupload' -c:v hevc_vaapi -f null - 2>/dev/null; then
+if [[ -r "$VAAPI_DEVICE" ]] && ffmpeg -hide_banner -vaapi_device "$VAAPI_DEVICE" -f lavfi -i nullsrc -t 0.1 -vf 'format=p010,hwupload' -c:v hevc_vaapi -f null - 2>/dev/null; then
     use_vaapi=true
 fi
 
