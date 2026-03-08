@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
 readonly DEFAULT_QP=15
+readonly DEFAULT_CRF=18
 
 usage() {
     cat <<EOF
@@ -133,7 +134,7 @@ process_file() {
             ffmpeg_args+=(-vf "$vf" -c:v hevc_vaapi -qp "$qp")
         else
             echo "Will re-encode video from $video_codec to H.265 via software..."
-            ffmpeg_args+=(-c:v libx265 -crf 18 -preset slow)
+            ffmpeg_args+=(-c:v libx265 -crf ${DEFAULT_CRF} -preset veryslow)
         fi
     else
         ffmpeg_args+=(-c:v copy)
