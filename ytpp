@@ -5,20 +5,20 @@ set -euo pipefail
 readonly VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
 readonly VAAPI_VF_BASE="format=p010,hwupload"
 readonly VAAPI_ENCODER_ARGS=(-c:v hevc_vaapi -profile:v main10)
-readonly DEFAULT_QP=15
-readonly DEFAULT_CRF=18
+readonly DEFAULT_QUALITY=18
 
 usage() {
     cat <<EOF
 Usage: ${0##*/} [options] [file]
 
-Convert videos with AV1/Opus codecs to H.265/AAC for TV compatibility.
+Convert videos with AV1/Opus codecs to H.265/AC3 for TV compatibility.
 With no file argument, processes all .webm files in the current directory.
 
 Options:
-  --qp <value>   Set QP for VAAPI encoding (default: ${DEFAULT_QP}, lower=better quality)
-  --no-delete    Keep original file after conversion
-  -h, --help     Show this help message
+  -q, --quality <n>  Quality level: QP for VAAPI, CRF for software (default: ${DEFAULT_QUALITY}, lower=better)
+  --sw               Force software encoding (libx265) instead of VAAPI
+  --no-delete        Keep original file after conversion
+  -h, --help         Show this help message
 EOF
 }
 
@@ -142,10 +142,10 @@ process_file() {
             if [[ "$aligned_height" -ne "$video_height" ]]; then
                 vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
             fi
-            ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$qp")
+            ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$quality")
         else
             echo "Will re-encode video from $video_codec to H.265 via software..."
-            ffmpeg_args+=(-c:v libx265 -crf ${DEFAULT_CRF} -preset veryslow)
+            ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset veryslow)
         fi
     else
         ffmpeg_args+=(-c:v copy)
@@ -186,21 +186,26 @@ process_file() {
 }
 
 # Defaults
-qp="$DEFAULT_QP"
+quality="$DEFAULT_QUALITY"
+force_sw=false
 delete_original=true
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --qp)
-            [[ $# -ge 2 ]] || die "--qp requires a value"
-            qp="$2"
-            [[ "$qp" =~ ^[0-9]+$ ]] || die "QP must be a positive integer"
+        -q|--quality)
+            [[ $# -ge 2 ]] || die "-q/--quality requires a value"
+            quality="$2"
+            [[ "$quality" =~ ^[0-9]+$ ]] || die "Quality must be a positive integer"
             shift 2
             ;;
-        --qp=*)
-            qp="${1#*=}"
-            [[ "$qp" =~ ^[0-9]+$ ]] || die "QP must be a positive integer"
+        -q=*|--quality=*)
+            quality="${1#*=}"
+            [[ "$quality" =~ ^[0-9]+$ ]] || die "Quality must be a positive integer"
+            shift
+            ;;
+        --sw)
+            force_sw=true
             shift
             ;;
         --no-delete)
@@ -227,8 +232,12 @@ else
     [[ -e "${files[0]}" ]] || { echo "No .webm files found"; exit 0; }
 fi
 
-# Check if VAAPI hardware encoding is available
-vaapi_available && use_vaapi=true || use_vaapi=false
+# Check if VAAPI hardware encoding is available (unless forced to software)
+if [[ "$force_sw" == true ]]; then
+    use_vaapi=false
+else
+    vaapi_available && use_vaapi=true || use_vaapi=false
+fi
 
 failures=0
 for input_file in "${files[@]}"; do
