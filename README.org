@@ -2,7 +2,7 @@
 
 Post-process YouTube downloads for TV compatibility.
 
-Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AAC while copying anything already compatible, so files play without hassle over DLNA/USB.
+Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AC3 while copying anything already compatible, so files play without hassle over DLNA/USB.
 
 ** Usage
 
@@ -12,7 +12,7 @@ ytpp [options] <file>
 
 | Option        | Description                                        |
 |---------------+----------------------------------------------------|
-| =--qp <n>=    | QP for VAAPI encoding (default: 18, lower=better)  |
+| =--qp <n>=    | QP for VAAPI encoding (default: 15, lower=better)  |
 | =--no-delete= | Keep the original file after conversion             |
 | =-h, --help=  | Show help                                           |
 
@@ -27,7 +27,7 @@ ytdl <yt-dlp args>
 1. Probe the input for codec and dimension info.
 2. Re-encode heuristics:
    - If AV1: re-encode video to H.265.
-   - If Opus: re-encode audio to AAC.
+   - If Opus: re-encode audio to AC3 (Dolby Digital).
    - Otherwise: streams are considered compatible and copied as-is.
 3. VAAPI hardware encoding is used automatically when available, with a software (libx265) fallback.
 
