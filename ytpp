@@ -244,7 +244,7 @@ process_file() {
     ffmpeg_args+=("$output_file")
 
     echo "Converting..."
-    ffmpeg "${ffmpeg_args[@]}" || { echo "Error: Conversion failed for '$input_file'" >&2; return 1; }
+    ffmpeg -hide_banner "${ffmpeg_args[@]}" || { echo "Error: Conversion failed for '$input_file'" >&2; return 1; }
     echo "Created: $output_file"
 
     if [[ "$delete_original" == true && "$input_file" != "$output_file" ]]; then
