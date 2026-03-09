@@ -123,8 +123,10 @@ process_file() {
             nvenc)
                 echo "Will re-encode video from $video_codec to H.265 via NVENC hardware..."
                 ffmpeg_args+=(-c:v hevc_nvenc -preset p7 -tune hq \
-                    -rc constqp -qp "$quality" \
-                    -b_ref_mode middle -spatial-aq 1 \
+                    -rc vbr -cq "$quality" \
+                    -rc-lookahead 64 \
+                    -bf 4 -b_ref_mode middle -spatial-aq 1 -temporal-aq 1 \
+                    -multipass fullres \
                     -pix_fmt p010le)
                 ;;
             vaapi)
