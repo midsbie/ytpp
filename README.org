@@ -39,13 +39,28 @@ When an NVIDIA GPU is available, =ytpp= uses =hevc_nvenc= with preset =p7= (high
 
 *** VAAPI (Mesa radeonsi caveats)
 
-VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi driver has known issues with HEVC encoding:
+VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi driver appears to have issues with HEVC encoding:
 
-1. *Green bar artifact:* the encoder requires heights divisible by 32.  Non-aligned heights (e.g. 1080) are padded to the next aligned value (1088), filling extra rows with uninitialized data.  =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* with =scale_vaapi=.  When the height is already aligned (720p, 2160p) the extra scaling is skipped.
+1. *Green bar artifact:* AMD VCN seems to require surface heights aligned to 32 (or 64×16 depending on generation).  Non-aligned heights (e.g. 1080) may be padded to the next aligned value (1088), filling extra rows with uninitialized data that shows up as a green or noise bar.  =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* with =scale_vaapi=.  Already-aligned heights (720p, 2160p) skip the extra scaling.
 
-2. *Intermittent frame corruption:* the encoder can produce malformed frames at unpredictable points.  On TVs this manifests as audio stuttering and resync pauses (the hardware decoder stalls on a bad frame, starving the audio buffer); in VLC it shows as visual corruption.
+   This appears to involve Mesa, libva, and FFmpeg, as radeonsi may have historically reported incorrect block sizes, and FFmpeg defaulted to 16×16 alignment.  An upstream FFmpeg [[https://www.mail-archive.com/ffmpeg-devel@ffmpeg.org/msg161546.html][patch]] (Mar 2024) adds =VASurfaceAttribAlignmentSize= support, requiring libva ≥ 1.21.0.
 
-NVENC avoids both issues in testing so far.
+   - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/9196][Mesa #9196]] :: Incorrect HEVC block size reported with radeonsi
+   - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/9185][Mesa #9185]] :: Encoded files include padding at bottom/right (HEVC, AV1)
+   - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/4559][Mesa #4559]] :: hevc_vaapi: wrong image width (48 px black bar)
+   - [[https://bugs-devel.debian.org/cgi-bin/bugreport.cgi?bug=1081512][Debian #1081512]] :: hevc_vaapi produces 1920×1088 with green bar on AMD (Sep 2024)
+   - [[https://github.com/obsproject/obs-studio/pull/11998][OBS Studio #11998]] :: Fix incorrect HEVC vertical resolution on AMD VCN (Apr 2025)
+   - [[https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/423][AMF #423]] :: AMD acknowledges alignment as a VCN4 limitation (Oct 2023)
+   - [[https://github.com/LizardByte/Sunshine/issues/4314][Sunshine #4314]] :: Green line / black bars with HEVC on AMD (Sep 2025)
+
+2. *Intermittent frame corruption:* the encoder may produce malformed frames at unpredictable points.  On TVs this can manifest as audio stuttering and resync pauses (possibly the hardware decoder stalling on a bad frame); in VLC it may show as visual corruption.
+
+   - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/9436][Mesa #9436]] :: VCN2: broken H.264 video, HEVC encoder crashes
+   - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/11730][Mesa #11730]] :: Tearing in all videos encoded via VAAPI
+   - [[https://bugs.freedesktop.org/show_bug.cgi?id=109538][fd.o #109538]] :: Unstable HEVC encoding, garbled output (Feb 2019)
+   - [[https://bugs.freedesktop.org/show_bug.cgi?id=110673][fd.o #110673]] :: HEVC encoding: segfault and garbled contents (May 2019)
+
+NVENC appeared to avoid both issues in limited testing.
 
 *** Software (libx265)
 
