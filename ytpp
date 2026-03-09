@@ -16,6 +16,7 @@ With no file argument, processes all .webm files in the current directory.
 
 Options:
   -q, --quality <n>  Quality level: QP for VAAPI/NVENC, CRF for software (default: ${DEFAULT_QUALITY}, lower=better)
+  -f, --force        Force transcoding even if codecs are already compatible
   --sw               Force software encoding (libx265)
   --no-delete        Keep original file after conversion
   -h, --help         Show this help message
@@ -74,19 +75,24 @@ process_file() {
     local needs_video_reencode=false
     local needs_audio_reencode=false
 
-    # AV1 not supported by older TVs (e.g., LG C8)
-    if [[ "$video_codec" == "av1" ]]; then
+    if [[ "$force_transcode" == true ]]; then
         needs_video_reencode=true
-    fi
-
-    # Opus not widely supported on TVs
-    if [[ "$audio_codec" == "opus" ]]; then
         needs_audio_reencode=true
-    fi
+    else
+        # AV1 not supported by older TVs (e.g., LG C8)
+        if [[ "$video_codec" == "av1" ]]; then
+            needs_video_reencode=true
+        fi
 
-    if [[ "$needs_video_reencode" == false && "$needs_audio_reencode" == false ]]; then
-        echo "No conversion needed for '$input_file'"
-        return 0
+        # Opus not widely supported on TVs
+        if [[ "$audio_codec" == "opus" ]]; then
+            needs_audio_reencode=true
+        fi
+
+        if [[ "$needs_video_reencode" == false && "$needs_audio_reencode" == false ]]; then
+            echo "No conversion needed for '$input_file'"
+            return 0
+        fi
     fi
 
     # Build output filename
@@ -227,6 +233,7 @@ process_file() {
 # Defaults
 quality="$DEFAULT_QUALITY"
 force_sw=false
+force_transcode=false
 delete_original=true
 
 # Parse arguments
@@ -241,6 +248,10 @@ while [[ $# -gt 0 ]]; do
         -q=*|--quality=*)
             quality="${1#*=}"
             [[ "$quality" =~ ^[0-9]+$ ]] || die "Quality must be a positive integer"
+            shift
+            ;;
+        -f|--force)
+            force_transcode=true
             shift
             ;;
         --sw)

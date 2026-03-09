@@ -13,6 +13,7 @@ ytpp [options] <file>
 | Option               | Description                                                        |
 |----------------------+--------------------------------------------------------------------|
 | =-q, --quality <n>=  | Quality level: QP for NVENC/VAAPI, CRF for software (default: 18)  |
+| =-f, --force=        | Force transcoding even if codecs are already compatible             |
 | =--sw=               | Force software encoding (libx265)                                  |
 | =--no-delete=        | Keep the original file after conversion                            |
 | =-h, --help=         | Show help                                                          |
