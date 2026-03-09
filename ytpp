@@ -145,7 +145,7 @@ process_file() {
             ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$quality")
         else
             echo "Will re-encode video from $video_codec to H.265 via software..."
-            ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset slow -pix_fmt yuv420p10le -x265-params aq-mode=3)
+            ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset medium -pix_fmt yuv420p10le -x265-params aq-mode=3)
         fi
     else
         ffmpeg_args+=(-c:v copy)
