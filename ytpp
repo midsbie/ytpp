@@ -5,7 +5,7 @@ set -euo pipefail
 readonly VAAPI_DEVICE="${VAAPI_DEVICE:-/dev/dri/renderD128}"
 readonly VAAPI_VF_BASE="format=p010,hwupload"
 readonly VAAPI_ENCODER_ARGS=(-c:v hevc_vaapi -profile:v main10)
-readonly DEFAULT_QUALITY=18
+readonly DEFAULT_QUALITY=17
 
 usage() {
     cat <<EOF
