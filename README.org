@@ -2,7 +2,7 @@
 
 Post-process YouTube downloads for TV compatibility.
 
-Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AC3 while copying anything already compatible, so files play without hassle over DLNA/USB.
+Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AC3 while copying anything already compatible, so videos play without hassle.
 
 ** Usage
 
@@ -31,21 +31,25 @@ ytdl <yt-dlp args>
    - If AV1: re-encode video to H.265.
    - If Opus: re-encode audio to AC3 (Dolby Digital).
    - Otherwise: streams are considered compatible and copied as-is.
-3. Video encoder is selected automatically: NVENC > VAAPI > software (libx265).  Use =--sw= to force software encoding.
+3. Video encoder is selected automatically: NVENC > VAAPI > software (via libx265).  Use =--sw= to force software encoding.
 
 *** NVENC
 
 When an NVIDIA GPU is available, =ytpp= uses =hevc_nvenc= with preset =p7= (highest quality), =hq= tune, B-frame references, spatial AQ, and 10-bit output.
 
+*** VAAPI (Mesa radeonsi caveats)
+
+VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi driver has known issues with HEVC encoding:
+
+1. *Green bar artifact:* the encoder requires heights divisible by 32.  Non-aligned heights (e.g. 1080) are padded to the next aligned value (1088), filling extra rows with uninitialized data.  =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* with =scale_vaapi=.  When the height is already aligned (720p, 2160p) the extra scaling is skipped.
+
+2. *Intermittent frame corruption:* the encoder can produce malformed frames at unpredictable points.  On TVs this manifests as audio stuttering and resync pauses (the hardware decoder stalls on a bad frame, starving the audio buffer); in VLC it shows as visual corruption.
+
+NVENC avoids both issues in testing so far.
+
 *** Software (libx265)
 
 The software path uses 10-bit encoding (=yuv420p10le=) with =aq-mode=3= to redistribute bits toward dark scenes and reduce banding.
-
-*** VAAPI 32-byte alignment workaround
-
-AMD and Intel VAAPI HEVC encoders (some?) (appear to) require frame heights divisible by 32.  Non-aligned heights (e.g. 1080) are internally padded to the next aligned value (1088), producing a green bar at the bottom of the frame.
-
-=ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* to the original height with =scale_vaapi=.  When the height is already aligned (720p, 2160p) the extra scaling is skipped entirely.
 
 ** Cookie support
 
@@ -68,10 +72,48 @@ COOKIES=~/cookies.txt ytcks firefox
 COOKIES=~/cookies.txt ytdl <yt-dlp args>
 #+end_example
 
+** YouTube PO Token (POT) provider
+
+YouTube's bot detection may block downloads even with valid cookies.  When this happens, yt-dlp needs a Proof of Origin (PO) token provider plugin.
+
+*** Setup
+
+1. Install the [[https://github.com/Brainicism/bgutil-ytdlp-pot-provider][bgutil-ytdlp-pot-provider]] plugin by downloading the latest release ZIP and extracting it under =~/.config/yt-dlp/plugins/=:
+
+   #+begin_example
+   ~/.config/yt-dlp/plugins/
+   └── bgutil-ytdlp-pot-provider/
+       └── yt_dlp_plugins/
+           └── extractor/
+               ├── getpot_bgutil_http.py
+               ├── getpot_bgutil.py
+               └── getpot_bgutil_script.py
+   #+end_example
+
+2. Start the POT provider container:
+
+   #+begin_example
+   docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
+   #+end_example
+
+3. Add =--js-runtimes node= to your yt-dlp config (=~/.config/yt-dlp/config=) so the plugin's JS evaluation uses Node.js.
+
+*** Recommended yt-dlp config
+
+#+begin_example
+-4
+--extractor-args "youtube:player_client=tv,mweb"
+-f "bv*+ba/b"
+--js-runtimes node
+#+end_example
+
+=-4= avoids IPv6-related 403 errors on reconnect.  =tv,mweb= pins the player client order to clients that work reliably with PO tokens (=mweb=) or don't require them (=tv=).
+
 ** Dependencies
 
 - =ffmpeg= / =ffprobe=
 - =yt-dlp= (for =ytdl= only)
+- =node= (for the POT provider plugin's JS evaluation)
 
 ** License
 
