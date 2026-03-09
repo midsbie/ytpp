@@ -122,12 +122,28 @@ process_file() {
                     -pix_fmt p010le)
                 ;;
             vaapi)
-                # VAAPI HEVC encoder green bar fix
-                # ================================
-                # AMD (and some Intel) VAAPI HEVC encoders require heights divisible by 32.
-                # Non-aligned heights (e.g., 1080) cause the encoder to pad to the next aligned
-                # value (1088), filling extra rows with uninitialized data that appears as a green
-                # bar at the bottom of the video.
+                # VAAPI HEVC encoding caveats (Mesa radeonsi)
+                # ===========================================
+                # The Mesa radeonsi VA-API driver (the default open-source AMD driver on Linux) has
+                # known issues with HEVC encoding. These are driver-level bugs, not ffmpeg issues:
+                #
+                # 1. Green bar artifact: AMD VAAPI HEVC encoders require heights divisible by 32.
+                #    Non-aligned heights (e.g., 1080) cause the encoder to pad to the next aligned
+                #    value (1088), filling extra rows with uninitialized data that appears as a
+                #    green bar at the bottom of the video.
+                #
+                # 2. Intermittent frame corruption: the Mesa VAAPI HEVC encoder can produce
+                #    malformed frames at unpredictable points, causing playback issues that vary by
+                #    decoder. On TVs this manifests as audio stuttering and resync pauses (the
+                #    hardware decoder stalls on a bad frame, starving the audio buffer); in VLC it
+                #    shows as visual corruption. This was initially misattributed to Opus->AAC
+                #    audio transcoding issues but was observed even with AC3 audio when using
+                #    VAAPI-encoded video.
+                #
+                # NVENC (when available) appeared to avoid both issues entirely in limited testing
+                # so far. VAAPI remains as a fallback for systems without NVIDIA GPUs.
+                #
+                # Green bar fix
                 #
                 # Failed approaches:
                 # 1. scale_vaapi=force_divisible_by=16 - Operates AFTER hwupload, but the green bar
