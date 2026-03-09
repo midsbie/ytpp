@@ -15,8 +15,8 @@ Convert videos with AV1/Opus codecs to H.265/AC3 for TV compatibility.
 With no file argument, processes all .webm files in the current directory.
 
 Options:
-  -q, --quality <n>  Quality level: QP for VAAPI, CRF for software (default: ${DEFAULT_QUALITY}, lower=better)
-  --sw               Force software encoding (libx265) instead of VAAPI
+  -q, --quality <n>  Quality level: QP for VAAPI/NVENC, CRF for software (default: ${DEFAULT_QUALITY}, lower=better)
+  --sw               Force software encoding (libx265)
   --no-delete        Keep original file after conversion
   -h, --help         Show this help message
 EOF
@@ -25,6 +25,11 @@ EOF
 die() {
     echo "Error: $1" >&2
     exit 1
+}
+
+# Test whether NVENC HEVC encoding is available
+nvenc_available() {
+    ffmpeg -hide_banner -f lavfi -i nullsrc -t 0.1 -c:v hevc_nvenc -f null - 2>/dev/null
 }
 
 # Test whether the VAAPI device supports HEVC encoding with our settings
@@ -93,80 +98,98 @@ process_file() {
     # Build ffmpeg command
     local ffmpeg_args=()
 
-    if [[ "$use_vaapi" == true ]]; then
+    # NVENC: use CUVID hardware decoding
+    # ===================================
+    # Without -hwaccel cuda, ffmpeg decodes the input (e.g., VP9 webm) in software, which can
+    # saturate 8-10 CPU cores even though encoding is on the GPU. Adding -hwaccel cuda offloads
+    # decoding to the GPU's dedicated NVDEC block. Frames are copied back to system memory for the
+    # encoder, so pix_fmt and other options work unchanged.
+    if [[ "$encoder" == "nvenc" ]]; then
+        ffmpeg_args+=(-hwaccel cuda)
+    elif [[ "$encoder" == "vaapi" ]]; then
         ffmpeg_args+=(-vaapi_device "$VAAPI_DEVICE")
     fi
 
     ffmpeg_args+=(-i "$input_file")
 
     if [[ "$needs_video_reencode" == true ]]; then
-        if [[ "$use_vaapi" == true ]]; then
-            # VAAPI HEVC encoder green bar fix
-            # ================================
-            # AMD (and some Intel) VAAPI HEVC encoders require heights divisible by 32.  Non-aligned
-            # heights (e.g., 1080) cause the encoder to pad to the next aligned value (1088),
-            # filling extra rows with uninitialized data that appears as a green bar at the bottom
-            # of the video.
-            #
-            # Failed approaches:
-            # 1. scale_vaapi=force_divisible_by=16 - Operates AFTER hwupload, but the green bar
-            #    originates during encoding, not upload. Also, 1080 is already divisible by 16; the
-            #    encoder needs 32-byte alignment.
-            # 2. scale=iw:ih before hwupload - Forces frame reallocation but doesn't address the
-            #    encoder's internal padding behavior.
-            # 3. pad + scale_vaapi crop - Padding adds black pixels; scaling back down compresses
-            #    them into the frame rather than cropping, causing a black bar.
-            # 4. crop to 1056 (32-aligned) - Works but loses 24 pixels of actual content.
-            #
-            # Working approach: Scale UP to 32-aligned height in software, upload to VAAPI, then
-            # scale back DOWN to original height with scale_vaapi. The double-scale cancels out with
-            # minimal quality loss (<1% dimension change for 1080p).
-            #
-            # Caveats:
-            # - Two scaling operations introduce minor quality loss (imperceptible for most content,
-            #   but may affect fine details or text at frame edges)
-            # - Slightly slower than direct encoding due to extra scale operations
-            # - If height is already 32-aligned (720p, 2160p), scaling is a no-op
-            #
-            # References:
-            # - https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1990958.html
-            # - https://obsproject.com/forum/threads/experimental-ffmpeg-vaapi-plugin.61529/page-2
-            echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
-            local aligned_height=$(( ((video_height + 31) / 32) * 32 ))
+        case "$encoder" in
+            nvenc)
+                echo "Will re-encode video from $video_codec to H.265 via NVENC hardware..."
+                ffmpeg_args+=(-c:v hevc_nvenc -preset p7 -tune hq \
+                    -rc constqp -qp "$quality" \
+                    -b_ref_mode middle -spatial-aq 1 \
+                    -pix_fmt p010le)
+                ;;
+            vaapi)
+                # VAAPI HEVC encoder green bar fix
+                # ================================
+                # AMD (and some Intel) VAAPI HEVC encoders require heights divisible by 32.
+                # Non-aligned heights (e.g., 1080) cause the encoder to pad to the next aligned
+                # value (1088), filling extra rows with uninitialized data that appears as a green
+                # bar at the bottom of the video.
+                #
+                # Failed approaches:
+                # 1. scale_vaapi=force_divisible_by=16 - Operates AFTER hwupload, but the green bar
+                #    originates during encoding, not upload. Also, 1080 is already divisible by 16;
+                #    the encoder needs 32-byte alignment.
+                # 2. scale=iw:ih before hwupload - Forces frame reallocation but doesn't address the
+                #    encoder's internal padding behavior.
+                # 3. pad + scale_vaapi crop - Padding adds black pixels; scaling back down
+                #    compresses them into the frame rather than cropping, causing a black bar.
+                # 4. crop to 1056 (32-aligned) - Works but loses 24 pixels of actual content.
+                #
+                # Working approach: Scale UP to 32-aligned height in software, upload to VAAPI, then
+                # scale back DOWN to original height with scale_vaapi. The double-scale cancels out
+                # with minimal quality loss (<1% dimension change for 1080p).
+                #
+                # Caveats:
+                # - Two scaling operations introduce minor quality loss (imperceptible for most
+                #   content, but may affect fine details or text at frame edges)
+                # - Slightly slower than direct encoding due to extra scale operations
+                # - If height is already 32-aligned (720p, 2160p), scaling is a no-op
+                #
+                # References:
+                # - https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1990958.html
+                # - https://obsproject.com/forum/threads/experimental-ffmpeg-vaapi-plugin.61529/page-2
+                echo "Will re-encode video from $video_codec to H.265 via VAAPI hardware..."
+                local aligned_height=$(( ((video_height + 31) / 32) * 32 ))
 
-            # Build VAAPI filter chain: always need format=p010,hwupload; conditionally wrap with
-            # double-scale for 32-byte alignment (see detailed explanation above). No -aspect flag
-            # needed: scale_vaapi restores original dimensions so ffmpeg derives DAR correctly, and
-            # omitting it preserves anamorphic SAR.
-            local vf="$VAAPI_VF_BASE"
-            if [[ "$aligned_height" -ne "$video_height" ]]; then
-                vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
-            fi
-            ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$quality")
-        else
-            echo "Will re-encode video from $video_codec to H.265 via software..."
-            ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset medium -pix_fmt yuv420p10le -x265-params aq-mode=3)
-        fi
+                # Build VAAPI filter chain: always need format=p010,hwupload; conditionally wrap
+                # with double-scale for 32-byte alignment (see detailed explanation above). No
+                # -aspect flag needed: scale_vaapi restores original dimensions so ffmpeg derives
+                # DAR correctly, and omitting it preserves anamorphic SAR.
+                local vf="$VAAPI_VF_BASE"
+                if [[ "$aligned_height" -ne "$video_height" ]]; then
+                    vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
+                fi
+                ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$quality")
+                ;;
+            sw)
+                echo "Will re-encode video from $video_codec to H.265 via software..."
+                ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset medium -pix_fmt yuv420p10le -x265-params aq-mode=3)
+                ;;
+        esac
     else
         ffmpeg_args+=(-c:v copy)
     fi
 
     if [[ "$needs_audio_reencode" == true ]]; then
-        # Opus → AC3 (Dolby Digital) instead of AAC
-        # =========================================
-        # AAC transcoding from Opus caused choppy/corrupted audio on older TVs due to:
+        # Opus to AC3 (Dolby Digital) instead of AAC
+        # ==========================================
+        # NOTE: The audio stuttering originally attributed to Opus->AAC transcoding was likely
+        # caused by VAAPI HEVC video encoding bugs in Mesa radeonsi (see VAAPI comment above).
+        # Malformed video frames cause TV hardware decoders to stall, starving the audio buffer and
+        # producing symptoms that mimic audio codec issues. The AC3 switch may be unnecessary on
+        # systems using NVENC or other reliable encoders, but AC3 remains a safe choice given its
+        # universal TV support as the DVD/Blu-ray standard.
         #
-        # 1. Frame size mismatch: Opus uses 960 samples/frame, but ffmpeg's native AAC encoder
-        #    expects 1024. Without an audio FIFO, each frame is padded with 64 blank samples,
-        #    causing accumulated micro-gaps over long files.
-        #    - https://libav-user.ffmpeg.narkive.com/LlO8JSzP/opus-transcoding-to-aac-but-960-sample-increase-to-1024-with-a-nomalized-blank-data
-        #
-        # 2. Timestamp discontinuities: YouTube adaptive-streaming downloads contain PTS jumps at
-        #    segment boundaries. The native AAC encoder mishandles these, producing gaps/distortion.
-        #    - https://trac.ffmpeg.org/ticket/4676
-        #
-        # AC3 avoids both issues: ffmpeg's native ac3 encoder handles frame boundary buffering
-        # internally, and AC3 (Dolby Digital) has universal TV support as the DVD/Blu-ray standard.
+        # Original theory (may still be a contributing factor for AAC specifically):
+        # - Frame size mismatch: Opus uses 960 samples/frame, AAC expects 1024, causing micro-gaps
+        # - PTS discontinuities in YouTube downloads mishandled by ffmpeg's native AAC encoder
+        # References:
+        #   - https://libav-user.ffmpeg.narkive.com/LlO8JSzP/opus-transcoding-to-aac-but-960-sample-increase-to-1024-with-a-nomalized-blank-data
+        #   - https://trac.ffmpeg.org/ticket/4676
         echo "Will re-encode audio from $audio_codec to AC3 (Dolby Digital)..."
         ffmpeg_args+=(-c:a ac3 -b:a 384k)
     else
@@ -232,11 +255,15 @@ else
     [[ -e "${files[0]}" ]] || { echo "No .webm files found"; exit 0; }
 fi
 
-# Check if VAAPI hardware encoding is available (unless forced to software)
+# Select video encoder: NVENC > VAAPI > software
 if [[ "$force_sw" == true ]]; then
-    use_vaapi=false
+    encoder=sw
+elif nvenc_available; then
+    encoder=nvenc
+elif vaapi_available; then
+    encoder=vaapi
 else
-    vaapi_available && use_vaapi=true || use_vaapi=false
+    encoder=sw
 fi
 
 failures=0

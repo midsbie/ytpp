@@ -10,12 +10,12 @@ Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs th
 ytpp [options] <file>
 #+end_example
 
-| Option            | Description                                                    |
-|-------------------+----------------------------------------------------------------|
-| =-q, --quality <n>= | Quality level: QP for VAAPI, CRF for software (default: 18) |
-| =--sw=            | Force software encoding (libx265) instead of VAAPI            |
-| =--no-delete=     | Keep the original file after conversion                        |
-| =-h, --help=      | Show help                                                      |
+| Option               | Description                                                        |
+|----------------------+--------------------------------------------------------------------|
+| =-q, --quality <n>=  | Quality level: QP for NVENC/VAAPI, CRF for software (default: 18)  |
+| =--sw=               | Force software encoding (libx265)                                  |
+| =--no-delete=        | Keep the original file after conversion                            |
+| =-h, --help=         | Show help                                                          |
 
 A convenience wrapper is included for download-and-transcode in one step:
 
@@ -30,7 +30,15 @@ ytdl <yt-dlp args>
    - If AV1: re-encode video to H.265.
    - If Opus: re-encode audio to AC3 (Dolby Digital).
    - Otherwise: streams are considered compatible and copied as-is.
-3. VAAPI hardware encoding is used automatically when available, with a software (libx265) fallback.
+3. Video encoder is selected automatically: NVENC > VAAPI > software (libx265).  Use =--sw= to force software encoding.
+
+*** NVENC
+
+When an NVIDIA GPU is available, =ytpp= uses =hevc_nvenc= with preset =p7= (highest quality), =hq= tune, B-frame references, spatial AQ, and 10-bit output.
+
+*** Software (libx265)
+
+The software path uses 10-bit encoding (=yuv420p10le=) with =aq-mode=3= to redistribute bits toward dark scenes and reduce banding.
 
 *** VAAPI 32-byte alignment workaround
 
