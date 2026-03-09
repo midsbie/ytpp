@@ -121,6 +121,27 @@ process_file() {
     if [[ "$needs_video_reencode" == true ]]; then
         case "$encoder" in
             nvenc)
+                # NVENC HEVC encoding args
+                # ========================
+                # -preset p7 -tune hq      Slowest preset + quality tuning (max encoder effort)
+                # -rc vbr -cq $quality     Variable bitrate with constant quality target: adapts
+                #                          bitrate per frame based on content complexity, unlike
+                #                          constqp which applies a fixed QP to every frame
+                # -rc-lookahead 64         Frames to buffer before encoding; lets the rate
+                #                          controller see upcoming scene changes and allocate bits
+                #                          accordingly (higher = better decisions, more memory)
+                # -bf 4                    Max consecutive B-frames; B-frames reference both past
+                #                          and future frames so they compress more efficiently
+                # -b_ref_mode middle       Allows B-frames to be used as references by other
+                #                          B-frames, further improving compression
+                # -spatial-aq 1            Redistributes bits within each frame toward flat/smooth
+                #                          areas where blocking artifacts are most visible
+                # -temporal-aq 1           Redistributes bits across frames based on temporal
+                #                          complexity (e.g., less bits to static scenes)
+                # -multipass fullres       Two-pass encoding: first pass analyzes the full
+                #                          resolution video, second pass uses that data for better
+                #                          bit allocation decisions
+                # -pix_fmt p010le          10-bit color depth; reduces banding in gradients
                 echo "Will re-encode video from $video_codec to H.265 via NVENC hardware..."
                 ffmpeg_args+=(-c:v hevc_nvenc -preset p7 -tune hq \
                     -rc vbr -cq "$quality" \
