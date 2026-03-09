@@ -281,7 +281,7 @@ if [[ $# -gt 0 ]]; then
     files=("$@")
 else
     files=(*.webm)
-    [[ -e "${files[0]}" ]] || { echo "No .webm files found"; exit 0; }
+    [[ -e "${files[0]}" ]] || { echo "No .webm files found"; exit 2; }
 fi
 
 # Select video encoder: NVENC > VAAPI > software
