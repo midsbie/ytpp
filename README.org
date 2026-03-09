@@ -18,12 +18,6 @@ ytpp [options] <file>
 | =--no-delete=        | Keep the original file after conversion                            |
 | =-h, --help=         | Show help                                                          |
 
-A convenience wrapper is included for download-and-transcode in one step:
-
-#+begin_example
-ytdl <yt-dlp args>
-#+end_example
-
 ** How it works
 
 1. Probe the input for codec and dimension info.
@@ -66,7 +60,17 @@ NVENC appeared to avoid both issues in limited testing.
 
 The software path uses 10-bit encoding (=yuv420p10le=) with =aq-mode=3= to redistribute bits toward dark scenes and reduce banding.
 
-** Cookie support
+** ytdl
+
+A convenience wrapper around =yt-dlp= for downloading is also included:
+
+#+begin_example
+ytdl <yt-dlp args>
+#+end_example
+
+It passes =--cookies= automatically when =cookies.txt= exists in the working directory, and adds =--js-runtimes node= when Node.js is available.  The subsections below cover general yt-dlp setup that =ytdl= benefits from but that applies to any direct =yt-dlp= usage as well.
+
+*** Cookies
 
 YouTube's anti-bot measures often require browser cookies for yt-dlp to work reliably.  =ytcks= extracts cookies into a file that =ytdl= picks up automatically:
 
@@ -74,26 +78,24 @@ YouTube's anti-bot measures often require browser cookies for yt-dlp to work rel
 ytcks [browser]
 #+end_example
 
-When called without an argument, =ytcks= makes a low-effort attempt to detect the default browser via =xdg-settings=.  Firefox users with multiple profiles may need to specify the profile path explicitly, since yt-dlp can pick the wrong one:
+Without an argument, =ytcks= tries to detect the default browser via =xdg-settings=.  Firefox users with multiple profiles may need to specify the profile path explicitly:
 
 #+begin_example
 ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
 #+end_example
 
-This creates =cookies.txt= (=chmod 600=) in the current directory.  Subsequent =ytdl= invocations will pass =--cookies= to yt-dlp when =cookies.txt= exists in the working directory.  Set the =COOKIES= environment variable to override the path:
+This creates =cookies.txt= (=chmod 600=) in the current directory.  Set the =COOKIES= environment variable to override the path:
 
 #+begin_example
 COOKIES=~/cookies.txt ytcks firefox
 COOKIES=~/cookies.txt ytdl <yt-dlp args>
 #+end_example
 
-** YouTube PO Token (POT) provider
+*** PO Token (POT) provider
 
-YouTube's bot detection may block downloads even with valid cookies.  When this happens, yt-dlp needs a Proof of Origin (PO) token provider plugin.
+YouTube's bot detection may block downloads even with valid cookies.  When this happens, yt-dlp likely needs a Proof of Origin (PO) token provider plugin.
 
-*** Setup
-
-1. Install the [[https://github.com/Brainicism/bgutil-ytdlp-pot-provider][bgutil-ytdlp-pot-provider]] plugin by downloading the latest release ZIP and extracting it under =~/.config/yt-dlp/plugins/=:
+1. Install the [[https://github.com/Brainicism/bgutil-ytdlp-pot-provider][bgutil-ytdlp-pot-provider]] plugin by extracting the latest release ZIP under =~/.config/yt-dlp/plugins/=:
 
    #+begin_example
    ~/.config/yt-dlp/plugins/
