@@ -185,7 +185,7 @@ process_file() {
                 if [[ "$aligned_height" -ne "$video_height" ]]; then
                     vf="scale=${video_width}:${aligned_height},${vf},scale_vaapi=w=${video_width}:h=${video_height}"
                 fi
-                ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -rc_mode CQP -qp "$quality")
+                ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -qp "$quality")
                 ;;
             sw)
                 echo "Will re-encode video from $video_codec to H.265 via software..."
