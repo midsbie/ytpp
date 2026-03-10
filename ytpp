@@ -211,8 +211,34 @@ process_file() {
                 ffmpeg_args+=(-vf "$vf" "${VAAPI_ENCODER_ARGS[@]}" -qp "$quality")
                 ;;
             sw)
+                # Software (libx265) encoding args
+                # =================================
+                # -preset slow          Significantly better quality than medium; enables more
+                #                       thorough motion search, RDO, and mode decisions without
+                #                       the extreme diminishing returns of slower+
+                # -pix_fmt yuv420p10le  10-bit color depth; reduces banding in gradients
+                #
+                # x265-params:
+                # aq-mode=3             Auto-variance AQ with bias toward dark scenes; prevents dark
+                #                       areas from looking blocky
+                # psy-rdoq=5.0          Psycho-visual RDOQ: biases quantization to preserve texture
+                #                       detail that pure PSNR optimization would discard (default
+                #                       0.0 at most presets)
+                # limit-sao=1           Restricts Sample Adaptive Offset to areas where it helps
+                #                       (banding); prevents SAO from blurring fine texture detail
+                #                       elsewhere
+                # rc-lookahead=60       Frames to buffer before encoding; lets the rate controller
+                #                       anticipate scene changes and allocate bits accordingly
+                #                       (default 20 at slow preset)
+                # bframes=8             Max consecutive B-frames; B-frames reference both past and
+                #                       future frames for better compression
+                # b-adapt=2             Trellis-based B-frame placement; optimally decides which
+                #                       frames should be B-frames (default only at slower+ presets)
+                # ref=5                 Reference frames for motion compensation; more refs improve
+                #                       compression of repetitive motion (default 3 at slow preset)
                 echo "Will re-encode video from $video_codec to H.265 via software..."
-                ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset medium -pix_fmt yuv420p10le -x265-params aq-mode=3)
+                ffmpeg_args+=(-c:v libx265 -crf "$quality" -preset slow -pix_fmt yuv420p10le \
+                    -x265-params aq-mode=3:psy-rdoq=5.0:limit-sao=1:rc-lookahead=60:bframes=8:b-adapt=2:ref=5)
                 ;;
         esac
     else
