@@ -27,5 +27,5 @@ else
 fi
 
 yt-dlp --cookies-from-browser "$BROWSER" --cookies "$COOKIES" --skip-download "TwEL7LkeNqU"
-sed -i '/^#/!{ /\.youtube\.com/!{ /\.google\.com/!d; }; }' "$COOKIES"
+sed -i '/^#/!{ /^\.youtube\.com\s/!{ /^\.google\.com\s/!d; }; }' "$COOKIES"
 chmod 600 "$COOKIES"
