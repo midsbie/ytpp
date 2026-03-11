@@ -13,7 +13,7 @@ command -v node &>/dev/null && js_args=(--js-runtimes node)
 if [[ $# -gt 0 ]]; then
     yt-dlp "${cookies_args[@]}" "${js_args[@]}" \
         -f "bv*+ba/b" \
-        --extractor-args "youtube:player_client=tv,mweb" \
+        --extractor-args "youtube:player_client=tv,mweb;lang=en" \
         --retries 50 \
         --retry-sleep exp=1:300 \
         --fragment-retries 50 \

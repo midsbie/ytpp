@@ -12,7 +12,7 @@ ytpp [options] <file>
 
 | Option               | Description                                                        |
 |----------------------+--------------------------------------------------------------------|
-| =-q, --quality <n>=  | Quality level: QP for NVENC/VAAPI, CRF for software (default: 18)  |
+| =-q, --quality <n>=  | Quality level: QP for NVENC/VAAPI, CRF for software (default: 17)  |
 | =-f, --force=        | Force transcoding even if codecs are already compatible             |
 | =--sw=               | Force software encoding (libx265)                                  |
 | =--no-delete=        | Keep the original file after conversion                            |
@@ -119,12 +119,12 @@ YouTube's bot detection may block downloads even with valid cookies.  When this 
 
 #+begin_example
 -4
---extractor-args "youtube:player_client=tv,mweb"
--f "bv*+ba/b"
---js-runtimes node
+--mark-watched
 #+end_example
 
-=-4= avoids IPv6-related 403 errors on reconnect.  =tv,mweb= pins the player client order to clients that work reliably with PO tokens (=mweb=) or don't require them (=tv=).
+=-4= avoids IPv6-related 403 errors on reconnect.  =--mark-watched= marks videos as watched on YouTube after downloading (requires cookies; no-ops without auth).
+
+*Note:* do not set =--extractor-args=, =-f=, or =--js-runtimes= here — =ytdl= passes its own values and yt-dlp CLI args override the config file.
 
 ** Dependencies
 
