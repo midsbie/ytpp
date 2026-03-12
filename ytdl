@@ -17,5 +17,6 @@ if [[ $# -gt 0 ]]; then
         --retries 50 \
         --retry-sleep exp=1:15 \
         --fragment-retries 50 \
+        --throttled-rate 100K \
         "$@" || exit 1
 fi
