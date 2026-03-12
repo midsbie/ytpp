@@ -15,7 +15,7 @@ if [[ $# -gt 0 ]]; then
         -f "bv*+ba/b" \
         --extractor-args "youtube:player_client=tv,mweb;lang=en" \
         --retries 50 \
-        --retry-sleep exp=1:300 \
+        --retry-sleep exp=1:15 \
         --fragment-retries 50 \
         "$@" || exit 1
 fi
