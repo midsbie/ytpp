@@ -68,7 +68,7 @@ A convenience wrapper around =yt-dlp= for downloading is also included:
 ytdl <yt-dlp args>
 #+end_example
 
-It passes =--cookies= automatically when =cookies.txt= exists in the working directory, and adds =--js-runtimes node= when Node.js is available.  The subsections below cover general yt-dlp setup that =ytdl= benefits from but that applies to any direct =yt-dlp= usage as well.
+It passes =--cookies cookies.txt= automatically when that file exists in the working directory; pass =--cookies <path>= to use a different location.  The subsections below cover general yt-dlp setup that =ytdl= benefits from but that applies to any direct =yt-dlp= usage as well.
 
 *** Cookies
 
@@ -84,11 +84,16 @@ Without an argument, =ytcks= tries to detect the default browser via =xdg-settin
 ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
 #+end_example
 
-This creates =cookies.txt= (=chmod 600=) in the current directory.  Set the =COOKIES= environment variable to override the path:
+This creates =cookies.txt= (=chmod 600=) in the current directory.  =ytdl= picks up =cookies.txt= from the working directory automatically; pass =--cookies <path>= to use a different location:
+
+#+begin_example
+ytdl --cookies ~/cookies.txt <yt-dlp args>
+#+end_example
+
+Set =COOKIES= to override the path =ytcks= writes to:
 
 #+begin_example
 COOKIES=~/cookies.txt ytcks firefox
-COOKIES=~/cookies.txt ytdl <yt-dlp args>
 #+end_example
 
 *** PO Token (POT) provider

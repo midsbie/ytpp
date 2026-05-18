@@ -2,15 +2,18 @@
 
 set -euo pipefail
 
-COOKIES="${COOKIES:-cookies.txt}"
 YT_DLP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/yt-dlp/config"
 
 skip_checks=false
+cookies=""
+cookies_set=false
 user_args=()
-for arg in "$@"; do
-    case "$arg" in
-        --skip-checks) skip_checks=true ;;
-        *) user_args+=("$arg") ;;
+while (( $# > 0 )); do
+    case "$1" in
+        --skip-checks) skip_checks=true; shift ;;
+        --cookies) cookies="${2:-}"; cookies_set=true; shift 2 ;;
+        --cookies=*) cookies="${1#--cookies=}"; cookies_set=true; shift ;;
+        *) user_args+=("$1"); shift ;;
     esac
 done
 
@@ -27,6 +30,7 @@ has_flag() {
             grep -Eq "^[[:space:]]*${flag}([[:space:]]|=|\$)" "$YT_DLP_CONFIG"; then
             return 0
         fi
+
         for arg in "${user_args[@]}"; do
             [[ "$arg" == "$flag" || "$arg" == "$flag="* ]] && return 0
         done
@@ -55,7 +59,15 @@ if [[ "$skip_checks" == false ]]; then
 fi
 
 cookies_args=()
-[[ -f "$COOKIES" ]] && cookies_args=(--cookies "$COOKIES")
+if [[ "$cookies_set" == true ]]; then
+    if [[ ! -f "$cookies" ]]; then
+        echo "Error: cookies file not found: $cookies" >&2
+        exit 1
+    fi
+    cookies_args=(--cookies "$cookies")
+elif [[ -f cookies.txt ]]; then
+    cookies_args=(--cookies cookies.txt)
+fi
 
 yt-dlp "${cookies_args[@]}" \
     --retries 50 \
