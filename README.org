@@ -4,7 +4,19 @@ Post-process YouTube downloads for TV compatibility.
 
 Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs that YouTube increasingly defaults to.  =ytpp= re-encodes these streams to H.265/AC3 while copying anything already compatible, so videos play without hassle.
 
-** Usage
+This repository also ships =ytdl= (a =yt-dlp= wrapper) and =ytcks= (a cookie extractor) to round out the download workflow.
+
+** Quick start
+
+1. /(Optional)/ Run [[*ytcks][ytcks]] to extract YouTube cookies from your browser into =cookies.txt=.
+2. /(Optional)/ Run [[*ytdl][ytdl]] to download videos — or invoke =yt-dlp= directly if your config is already set up.
+3. Run [[*ytpp][ytpp]] to transcode any files whose codecs your TV can't decode.
+
+** ytpp
+
+Re-encode incompatible video/audio streams (AV1, Opus) to H.265/AC3 while copying anything already compatible.
+
+*** Usage
 
 #+begin_example
 ytpp [options] <file>
@@ -18,7 +30,7 @@ ytpp [options] <file>
 | =--no-delete=       | Keep the original file after conversion                           |
 | =-h, --help=        | Show help                                                         |
 
-** How it works
+*** How it works
 
 1. Probe the input for codec and dimension info.
 2. Re-encode heuristics:
@@ -27,15 +39,15 @@ ytpp [options] <file>
    - Otherwise: streams are considered compatible and copied as-is.
 3. Video encoder is selected automatically: NVENC > VAAPI > software (via libx265).  Use =--sw= to force software encoding.
 
-*** NVENC
+**** NVENC
 
 When an NVIDIA GPU is available, =ytpp= uses =hevc_nvenc= with preset =p7= (highest quality), =hq= tune, B-frame references, spatial AQ, and 10-bit output.
 
-*** VAAPI (Mesa radeonsi caveats)
+**** VAAPI (Mesa radeonsi caveats)
 
 VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi driver appears to have issues with HEVC encoding:
 
-1. *Green bar artifact:* AMD VCN seems to require surface heights aligned to 32 (or 64×16 depending on generation).  Non-aligned heights (e.g. 1080) may be padded to the next aligned value (1088), filling extra rows with uninitialized data that shows up as a green or noise bar.  =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* with =scale_vaapi=.  Already-aligned heights (720p, 2160p) skip the extra scaling.
+1. AMD VCN seems to require surface heights aligned to 32 (or 64×16 depending on generation).  Non-aligned heights (e.g. 1080) may be padded to the next aligned value (1088), filling extra rows with uninitialized data that **shows up as a green or noise bar**.  =ytpp= works around this by scaling *up* to the aligned height in software, uploading to VAAPI, then scaling back *down* with =scale_vaapi=.  Already-aligned heights (720p, 2160p) skip the extra scaling.
 
    This appears to involve Mesa, libva, and FFmpeg, as radeonsi may have historically reported incorrect block sizes, and FFmpeg defaulted to 16×16 alignment.  An upstream FFmpeg [[https://www.mail-archive.com/ffmpeg-devel@ffmpeg.org/msg161546.html][patch]] (Mar 2024) adds =VASurfaceAttribAlignmentSize= support, requiring libva ≥ 1.21.0.
 
@@ -47,7 +59,7 @@ VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi 
    - [[https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/423][AMF #423]] :: AMD acknowledges alignment as a VCN4 limitation (Oct 2023)
    - [[https://github.com/LizardByte/Sunshine/issues/4314][Sunshine #4314]] :: Green line / black bars with HEVC on AMD (Sep 2025)
 
-2. *Intermittent frame corruption:* the encoder may produce malformed frames at unpredictable points.  On TVs this can manifest as audio stuttering and resync pauses (possibly the hardware decoder stalling on a bad frame); in VLC it may show as visual corruption.
+2. The encoder may produce malformed frames at unpredictable points, which can manifest on TVs as audio stuttering and resync pauses (possibly the hardware decoder stalling on a bad frame); in VLC it may show as visual corruption.
 
    - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/9436][Mesa #9436]] :: VCN2: broken H.264 video, HEVC encoder crashes
    - [[https://gitlab.freedesktop.org/mesa/mesa/-/issues/11730][Mesa #11730]] :: Tearing in all videos encoded via VAAPI
@@ -56,40 +68,28 @@ VAAPI is used as a fallback when no NVIDIA GPU is available.  The Mesa radeonsi 
 
 NVENC appeared to avoid both issues in limited testing.
 
-*** Software (libx265)
+**** Software (libx265)
 
 The software path uses 10-bit encoding (=yuv420p10le=) with =aq-mode=3= to redistribute bits toward dark scenes and reduce banding.
 
 ** ytdl
 
-A convenience wrapper around =yt-dlp= for downloading is also included:
+A convenience wrapper around =yt-dlp= for downloading.
+
+*** Usage
 
 #+begin_example
-ytdl <yt-dlp args>
+ytdl [--cookies <path>] [--skip-checks] <yt-dlp args>
 #+end_example
 
-It passes =--cookies cookies.txt= automatically when that file exists in the working directory; pass =--cookies <path>= to use a different location.  The subsections below cover general yt-dlp setup that =ytdl= benefits from but that applies to any direct =yt-dlp= usage as well.
+| Option             | Description                                                          |
+|--------------------+----------------------------------------------------------------------|
+| =--cookies <path>= | Use a specific cookies file (default: =cookies.txt= in current dir)  |
+| =--skip-checks=    | Bypass the yt-dlp config validation (see [[*Required yt-dlp config][Required yt-dlp config]]) |
 
-*** Cookies
+=ytdl= passes =--cookies cookies.txt= automatically when that file exists in the working directory.  See [[*ytcks][ytcks]] for extracting cookies from your browser.
 
-YouTube's anti-bot measures often require browser cookies for yt-dlp to work reliably.  =ytcks= extracts cookies into a file that =ytdl= picks up automatically:
-
-#+begin_example
-ytcks [browser]
-#+end_example
-
-Without an argument, =ytcks= tries to detect the default browser via =xdg-settings=.  Firefox users with multiple profiles may need to specify the profile path explicitly:
-
-#+begin_example
-ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
-#+end_example
-
-Both tools read from and write to =cookies.txt= (=chmod 600=) in the current directory by default, so no flag is needed when running them side by side.  Pass =--cookies <path>= to use a different location:
-
-#+begin_example
-ytcks --cookies ~/cookies.txt firefox
-ytdl --cookies ~/cookies.txt <yt-dlp args>
-#+end_example
+All remaining arguments are forwarded to =yt-dlp= unchanged.  The subsections below cover yt-dlp setup that =ytdl= benefits from but that applies to direct =yt-dlp= usage as well.
 
 *** PO Token (POT) provider
 
@@ -113,7 +113,7 @@ YouTube's bot detection may block downloads even with valid cookies.  When this 
    docker run --name bgutil-provider -d -p 4416:4416 --init brainicism/bgutil-ytdlp-pot-provider
    #+end_example
 
-3. Add =--js-runtimes node= to your yt-dlp config (=~/.config/yt-dlp/config=) so the plugin's JS evaluation uses Node.js.
+3. Add =--js-runtimes node= to your yt-dlp config so the plugin's JS evaluation uses Node.js.
 
 *** Required yt-dlp config
 
@@ -143,17 +143,58 @@ Pass =--skip-checks= to bypass these checks.  Useful if your yt-dlp config lives
 
 The flags in the table below aren't checked by =ytdl=, but make downloads more resilient on flaky networks or when YouTube throttles bandwidth.  Add them to your yt-dlp config alongside the required flags above.
 
-| Flag                       | Why                                                                                      |
-|----------------------------+------------------------------------------------------------------------------------------|
-| =--retries 50=             | Retry the whole download up to 50 times on transient failures                            |
-| =--retry-sleep exp=1:15=   | Exponential backoff between retries, starting at 1s and capped at 15s                    |
-| =--fragment-retries 50=    | Retry individual HLS/DASH fragments up to 50 times before giving up on the whole file    |
-| =--throttled-rate 100K=    | Restart the download if YouTube throttles the connection below 100 KB/s                  |
+| Flag                     | Why                                                                                   |
+|--------------------------+---------------------------------------------------------------------------------------|
+| =--retries 50=           | Retry the whole download up to 50 times on transient failures                         |
+| =--retry-sleep exp=1:15= | Exponential backoff between retries, starting at 1s and capped at 15s                 |
+| =--fragment-retries 50=  | Retry individual HLS/DASH fragments up to 50 times before giving up on the whole file |
+| =--throttled-rate 100K=  | Restart the download if YouTube throttles the connection below 100 KB/s               |
+
+*** Example yt-dlp config
+#+begin_example
+-4
+-v
+--mark-watched
+--extractor-args "youtube:player_client=tv,mweb;lang=en"
+-f "bv*[vcodec!^=av01]+ba[acodec!=opus]/bv*+ba/b"
+--js-runtimes node
+--retries 50
+--retry-sleep exp=1:15
+--fragment-retries 50
+--throttled-rate 100K
+#+end_example
+
+** ytcks
+
+Extract YouTube cookies from your browser into a =cookies.txt= file usable by =yt-dlp= (and [[*ytdl][ytdl]]).
+
+*** Usage
+
+#+begin_example
+ytcks [--cookies <path>] [browser]
+#+end_example
+
+| Option             | Description                                                          |
+|--------------------+----------------------------------------------------------------------|
+| =--cookies <path>= | Write to a specific path (default: =cookies.txt= in current dir)     |
+
+Without a browser argument, =ytcks= tries to detect the default browser via =xdg-settings=.  Supported values are =firefox=, =chrome=, =chromium=, and =brave=.  Firefox users with multiple profiles may need to specify the profile path explicitly:
+
+#+begin_example
+ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
+#+end_example
+
+The output file is written with =chmod 600=.  By default both =ytcks= and =ytdl= read/write =cookies.txt= in the current directory, so no flag is needed when running them side by side:
+
+#+begin_example
+ytcks --cookies ~/cookies.txt firefox
+ytdl --cookies ~/cookies.txt <yt-dlp args>
+#+end_example
 
 ** Dependencies
 
 - =ffmpeg= / =ffprobe=
-- =yt-dlp= (for =ytdl= only)
+- =yt-dlp= (for =ytdl= and =ytcks=)
 - =node= (for the POT provider plugin's JS evaluation)
 
 ** License
