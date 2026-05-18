@@ -3,20 +3,63 @@
 set -euo pipefail
 
 COOKIES="${COOKIES:-cookies.txt}"
+YT_DLP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/yt-dlp/config"
+
+skip_checks=false
+user_args=()
+for arg in "$@"; do
+    case "$arg" in
+        --skip-checks) skip_checks=true ;;
+        *) user_args+=("$arg") ;;
+    esac
+done
+
+if (( ${#user_args[@]} == 0 )); then
+    exit 0
+fi
+
+# Returns 0 if any of the listed flag names appears as an uncommented entry in the yt-dlp config
+# or as a token in the user's CLI args.
+has_flag() {
+    local flag arg
+    for flag in "$@"; do
+        if [[ -f "$YT_DLP_CONFIG" ]] && \
+            grep -Eq "^[[:space:]]*${flag}([[:space:]]|=|\$)" "$YT_DLP_CONFIG"; then
+            return 0
+        fi
+        for arg in "${user_args[@]}"; do
+            [[ "$arg" == "$flag" || "$arg" == "$flag="* ]] && return 0
+        done
+    done
+    return 1
+}
+
+if [[ "$skip_checks" == false ]]; then
+    missing=()
+    for flag in --extractor-args --js-runtimes; do
+        has_flag "$flag" || missing+=("$flag")
+    done
+
+    if (( ${#missing[@]} > 0 )); then
+        {
+            echo "Error: required yt-dlp flag(s) not found in $YT_DLP_CONFIG or CLI args:"
+            printf '  %s\n' "${missing[@]}"
+            echo "See README for setup details, or pass --skip-checks to bypass."
+        } >&2
+        exit 1
+    fi
+
+    if ! has_flag -f --format; then
+        echo "Warning: no -f/--format in config or CLI; yt-dlp will use its default selector." >&2
+    fi
+fi
 
 cookies_args=()
 [[ -f "$COOKIES" ]] && cookies_args=(--cookies "$COOKIES")
 
-js_args=()
-command -v node &>/dev/null && js_args=(--js-runtimes node)
-
-if [[ $# -gt 0 ]]; then
-    yt-dlp "${cookies_args[@]}" "${js_args[@]}" \
-        -f "bv*+ba/b" \
-        --extractor-args "youtube:player_client=tv,mweb;lang=en" \
-        --retries 50 \
-        --retry-sleep exp=1:15 \
-        --fragment-retries 50 \
-        --throttled-rate 100K \
-        "$@" || exit 1
-fi
+yt-dlp "${cookies_args[@]}" \
+    --retries 50 \
+    --retry-sleep exp=1:15 \
+    --fragment-retries 50 \
+    --throttled-rate 100K \
+    "${user_args[@]}" || exit 1

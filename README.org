@@ -10,13 +10,13 @@ Older smart TVs (e.g. LG C8) can't decode AV1 video or Opus audio, the codecs th
 ytpp [options] <file>
 #+end_example
 
-| Option               | Description                                                        |
-|----------------------+--------------------------------------------------------------------|
-| =-q, --quality <n>=  | Quality level: QP for NVENC/VAAPI, CRF for software (default: 17)  |
-| =-f, --force=        | Force transcoding even if codecs are already compatible             |
-| =--sw=               | Force software encoding (libx265)                                  |
-| =--no-delete=        | Keep the original file after conversion                            |
-| =-h, --help=         | Show help                                                          |
+| Option              | Description                                                       |
+|---------------------+-------------------------------------------------------------------|
+| =-q, --quality <n>= | Quality level: QP for NVENC/VAAPI, CRF for software (default: 17) |
+| =-f, --force=       | Force transcoding even if codecs are already compatible           |
+| =--sw=              | Force software encoding (libx265)                                 |
+| =--no-delete=       | Keep the original file after conversion                           |
+| =-h, --help=        | Show help                                                         |
 
 ** How it works
 
@@ -115,16 +115,29 @@ YouTube's bot detection may block downloads even with valid cookies.  When this 
 
 3. Add =--js-runtimes node= to your yt-dlp config (=~/.config/yt-dlp/config=) so the plugin's JS evaluation uses Node.js.
 
-*** Recommended yt-dlp config
+*** Required yt-dlp config
+
+=ytdl= delegates format selection, player client choice, and JS runtime to your [[https://github.com/yt-dlp/yt-dlp#configuration][yt-dlp config]] (or CLI flags), so each user can pick what fits their media system without editing =ytdl=:
 
 #+begin_example
 -4
 --mark-watched
+-f "bv*+ba/b"
+--extractor-args "youtube:player_client=tv,mweb;lang=en"
+--js-runtimes node
 #+end_example
 
-=-4= avoids IPv6-related 403 errors on reconnect.  =--mark-watched= marks videos as watched on YouTube after downloading (requires cookies; no-ops without auth).
+| Flag                 | Why                                                                                 |
+|----------------------+-------------------------------------------------------------------------------------|
+| =-4=                 | Avoids IPv6-related 403 errors on reconnect                                         |
+| =--mark-watched=     | Marks videos as watched on YouTube after downloading (requires cookies)             |
+| =-f=                 | Format selector; pick streams your TV decodes natively (e.g. =315+140= for VP9+AAC) |
+| =--extractor-args=   | Pins player client order; =mweb= pairs with PO tokens                               |
+| =--js-runtimes node= | POT plugin requires a JS runtime                                                    |
 
-*Note:* do not set =--extractor-args=, =-f=, or =--js-runtimes= here — =ytdl= passes its own values and yt-dlp CLI args override the config file.
+=ytdl= errors if =--extractor-args= or =--js-runtimes= is missing from both the config file and CLI args, and warns if =-f= is missing.
+
+Pass =--skip-checks= to bypass these checks.  Useful if your yt-dlp config lives outside the default path (=ytdl= only inspects =$XDG_CONFIG_HOME/yt-dlp/config=) or if you're intentionally downloading from a site where POT setup isn't relevant.
 
 ** Dependencies
 
