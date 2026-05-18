@@ -84,16 +84,11 @@ Without an argument, =ytcks= tries to detect the default browser via =xdg-settin
 ytcks "firefox:~/.mozilla/firefox/xxxxxxxx.profile-name"
 #+end_example
 
-This creates =cookies.txt= (=chmod 600=) in the current directory.  =ytdl= picks up =cookies.txt= from the working directory automatically; pass =--cookies <path>= to use a different location:
+Both tools read from and write to =cookies.txt= (=chmod 600=) in the current directory by default, so no flag is needed when running them side by side.  Pass =--cookies <path>= to use a different location:
 
 #+begin_example
+ytcks --cookies ~/cookies.txt firefox
 ytdl --cookies ~/cookies.txt <yt-dlp args>
-#+end_example
-
-Set =COOKIES= to override the path =ytcks= writes to:
-
-#+begin_example
-COOKIES=~/cookies.txt ytcks firefox
 #+end_example
 
 *** PO Token (POT) provider
