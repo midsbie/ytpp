@@ -139,6 +139,17 @@ YouTube's bot detection may block downloads even with valid cookies.  When this 
 
 Pass =--skip-checks= to bypass these checks.  Useful if your yt-dlp config lives outside the default path (=ytdl= only inspects =$XDG_CONFIG_HOME/yt-dlp/config=) or if you're intentionally downloading from a site where POT setup isn't relevant.
 
+*** Recommended yt-dlp config
+
+The flags in the table below aren't checked by =ytdl=, but make downloads more resilient on flaky networks or when YouTube throttles bandwidth.  Add them to your yt-dlp config alongside the required flags above.
+
+| Flag                       | Why                                                                                      |
+|----------------------------+------------------------------------------------------------------------------------------|
+| =--retries 50=             | Retry the whole download up to 50 times on transient failures                            |
+| =--retry-sleep exp=1:15=   | Exponential backoff between retries, starting at 1s and capped at 15s                    |
+| =--fragment-retries 50=    | Retry individual HLS/DASH fragments up to 50 times before giving up on the whole file    |
+| =--throttled-rate 100K=    | Restart the download if YouTube throttles the connection below 100 KB/s                  |
+
 ** Dependencies
 
 - =ffmpeg= / =ffprobe=

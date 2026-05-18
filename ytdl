@@ -69,9 +69,4 @@ elif [[ -f cookies.txt ]]; then
     cookies_args=(--cookies cookies.txt)
 fi
 
-yt-dlp "${cookies_args[@]}" \
-    --retries 50 \
-    --retry-sleep exp=1:15 \
-    --fragment-retries 50 \
-    --throttled-rate 100K \
-    "${user_args[@]}" || exit 1
+yt-dlp "${cookies_args[@]}" "${user_args[@]}" || exit 1
