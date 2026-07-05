@@ -9,7 +9,7 @@ This repository also ships =ytdl= (a =yt-dlp= wrapper) and =ytcks= (a cookie ext
 ** Quick start
 
 1. /(Optional)/ Run [[*ytcks][ytcks]] to extract YouTube cookies from your browser into =cookies.txt=.
-2. /(Optional)/ Run [[*ytdl][ytdl]] to download videos — or invoke =yt-dlp= directly if your config is already set up.
+2. /(Optional)/ Run [[*ytdl][ytdl]] to download videos, or invoke =yt-dlp= directly if your config is already set up.
 3. Run [[*ytpp][ytpp]] to transcode any files whose codecs your TV can't decode.
 
 ** ytpp
@@ -71,6 +71,10 @@ NVENC appeared to avoid both issues in limited testing.
 **** Software (libx265)
 
 The software path uses 10-bit encoding (=yuv420p10le=) with =aq-mode=3= to redistribute bits toward dark scenes and reduce banding.
+
+*** Avoiding transcodes
+
+Note that most videos never need =ytpp=.  Choosing a download format that excludes AV1 and Opus up front (see [[*Example yt-dlp config][the example config]]) makes files arrive TV-compatible, leaving =ytpp= to re-encode only videos that offer no compatible streams.
 
 ** ytdl
 
@@ -180,6 +184,8 @@ The flags in the table below aren't checked by =ytdl=, but make downloads more r
 --fragment-retries 50
 --throttled-rate 100K
 #+end_example
+
+Its =-f= line refines the required selector by excluding AV1 video and Opus audio, so downloads are already TV-compatible and [[*ytpp][ytpp]] has nothing to re-encode.  The trailing =bv*+ba/b= is a fallback for videos that offer only those codecs, the ones =ytpp= converts.
 
 ** ytcks
 
