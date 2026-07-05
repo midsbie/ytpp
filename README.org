@@ -91,6 +91,23 @@ ytdl [--cookies <path>] [--skip-checks] <yt-dlp args>
 
 All remaining arguments are forwarded to =yt-dlp= unchanged.  The subsections below cover yt-dlp setup that =ytdl= benefits from but that applies to direct =yt-dlp= usage as well.
 
+*** Output naming
+
+Unless you set your own =-o/--output= (in the yt-dlp config or on the CLI), =ytdl= supplies a default template that numbers playlist items:
+
+#+begin_example
+%(playlist_index&{} - |)s%(title)s [%(id)s].%(ext)s
+#+end_example
+
+yt-dlp fills =playlist_index= only for items that belong to a playlist, channels and auto-generated mixes included, and leaves it empty otherwise. The one template covers every case:
+
+- Playlist item :: =07 - Episode Seven [abc123].webm= (the index is zero-padded to the playlist's length, so files sort correctly).
+- Standalone video :: =Some Video [xyz789].webm=, identical to yt-dlp's own default.
+
+Because the choice is made per item, mixing a playlist and a lone video in a single command numbers only the playlist items.  Files are written flat in the current directory, so [[*ytpp][ytpp]] can transcode them in place.
+
+If you set =-o= yourself, =ytdl= leaves it untouched.
+
 *** PO Token (POT) provider
 
 YouTube's bot detection may block downloads even with valid cookies.  When this happens, yt-dlp likely needs a Proof of Origin (PO) token provider plugin.

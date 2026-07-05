@@ -4,6 +4,14 @@ set -euo pipefail
 
 YT_DLP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/yt-dlp/config"
 
+# Default output template. yt-dlp populates playlist_index only for items that belong to a playlist
+# (channels and auto-generated mixes included) and leaves it empty otherwise, so this one template
+# numbers playlist items ("07 - title [id].ext", zero-padded to the playlist length so they sort)
+# while rendering standalone videos identically to yt-dlp's own default ("title [id].ext") -- even
+# when a playlist and a lone video are mixed in a single invocation. Injected only when the user has
+# not set their own -o/--output, and files stay flat in the CWD so ytpp can transcode them in place.
+readonly OUTPUT_TEMPLATE='%(playlist_index|)s%(playlist_index& - |)s%(title)s [%(id)s].%(ext)s'
+
 skip_checks=false
 cookies=""
 cookies_set=false
@@ -69,4 +77,11 @@ elif [[ -f cookies.txt ]]; then
     cookies_args=(--cookies cookies.txt)
 fi
 
-yt-dlp "${cookies_args[@]}" "${user_args[@]}" || exit 1
+# Respect a user-provided output template (config or CLI); otherwise supply our numbering default.
+# Placed before user_args so an explicit CLI -o would still win even if the check above missed it.
+output_args=()
+if ! has_flag -o --output; then
+    output_args=(-o "$OUTPUT_TEMPLATE")
+fi
+
+yt-dlp "${cookies_args[@]}" "${output_args[@]}" "${user_args[@]}" || exit 1
