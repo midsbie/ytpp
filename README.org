@@ -83,13 +83,14 @@ A convenience wrapper around =yt-dlp= for downloading.
 *** Usage
 
 #+begin_example
-ytdl [--cookies <path>] [--skip-checks] <yt-dlp args>
+ytdl [--cookies <path>] [--skip-checks] [-h|--help] <yt-dlp args>
 #+end_example
 
-| Option             | Description                                                          |
-|--------------------+----------------------------------------------------------------------|
-| =--cookies <path>= | Use a specific cookies file (default: =cookies.txt= in current dir)  |
-| =--skip-checks=    | Bypass the yt-dlp config validation (see [[*Required yt-dlp config][Required yt-dlp config]]) |
+| Option             | Description                                                         |
+|--------------------+---------------------------------------------------------------------|
+| =--cookies <path>= | Use a specific cookies file (default: =cookies.txt= in current dir) |
+| =--skip-checks=    | Bypass the yt-dlp config validation (see [[*Required yt-dlp config][Required yt-dlp config]])    |
+| =-h, --help=       | Show help                                                           |
 
 =ytdl= passes =--cookies cookies.txt= automatically when that file exists in the working directory.  See [[*ytcks][ytcks]] for extracting cookies from your browser.
 

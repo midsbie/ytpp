@@ -12,25 +12,46 @@ YT_DLP_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/yt-dlp/config"
 # not set their own -o/--output, and files stay flat in the CWD so ytpp can transcode them in place.
 readonly OUTPUT_TEMPLATE='%(playlist_index|)s%(playlist_index& - |)s%(title)s [%(id)s].%(ext)s'
 
+usage() {
+    cat <<'EOF'
+Usage: ytdl [--cookies <path>] [--skip-checks] [-h|--help] <yt-dlp args>
+
+Convenience wrapper around yt-dlp for downloading.
+
+Options:
+  --cookies <path>   Use a specific cookies file (default: cookies.txt in the current dir)
+  --skip-checks      Bypass the yt-dlp config validation
+  -h, --help         Show this help and exit
+
+All remaining arguments are forwarded to yt-dlp unchanged.
+EOF
+}
+
 skip_checks=false
 cookies=""
 cookies_set=false
 user_args=()
+# A single trailing shift consumes each flag; --cookies shifts once more for its value.
 while (( $# > 0 )); do
     case "$1" in
-        --skip-checks) skip_checks=true; shift ;;
-        --cookies) cookies="${2:-}"; cookies_set=true; shift 2 ;;
-        --cookies=*) cookies="${1#--cookies=}"; cookies_set=true; shift ;;
-        *) user_args+=("$1"); shift ;;
+        -h|--help) usage; exit 0 ;;
+        --skip-checks) skip_checks=true ;;
+        --cookies)
+            [[ $# -ge 2 ]] || { echo "Error: --cookies requires a path" >&2; exit 1; }
+            cookies="$2"; cookies_set=true; shift ;;
+        --cookies=*) cookies="${1#--cookies=}"; cookies_set=true ;;
+        *) user_args+=("$1") ;;
     esac
+
+    shift
 done
 
 if (( ${#user_args[@]} == 0 )); then
     exit 0
 fi
 
-# Returns 0 if any of the listed flag names appears as an uncommented entry in the yt-dlp config
-# or as a token in the user's CLI args.
+# Returns 0 if any of the listed flag names appears as an uncommented entry in the yt-dlp config or
+# as a token in the user's CLI args.
 has_flag() {
     local flag arg
     for flag in "$@"; do
